@@ -5,53 +5,22 @@ defmodule Traceroute.Sockets.Icmp do
   Written with the help of https://github.com/hauleth/gen_icmp/blob/master/src/inet_icmp.erl
   """
 
-  use GenServer
+  @doc """
+  Opens a socket, sends an ICMP packet, waits for a response, and closes the socket.
 
-  @doc "Sends a packet through a temporary socket which is opened and closed for this packet."
-  def one_off_send(packet, ip, ttl, timeout) do
-    {:ok, pid} = start_link([])
-    response = send(pid, packet, ip, ttl, timeout)
-    stop(pid)
-
-    response
+  Returns `{:ok, time_in_microseconds, reply_packet}` on success, or `{:error, reason}` on failure.
+  """
+  def send(packet, ip, ttl, timeout) do
+    with {:ok, socket} <- :socket.open(:inet, :dgram, :icmp) do
+      try do
+        do_send(socket, packet, ip, ttl, timeout)
+      after
+        :socket.close(socket)
+      end
+    end
   end
 
-  @doc "Starts the Socket GenServer"
-  def start_link(args) do
-    GenServer.start_link(__MODULE__, args)
-  end
-
-  @doc "Sends an ICMP packet to a given IP with a given timeout"
-  def send(pid, packet, ip, ttl, timeout) do
-    GenServer.call(pid, {:send, ip, packet, ttl, timeout}, to_timeout(second: timeout + 1))
-  end
-
-  @doc "Stops the Socket GenServer"
-  def stop(pid) do
-    GenServer.stop(pid, :normal)
-  end
-
-  # Callbacks
-
-  @impl GenServer
-  def init(_args) do
-    :socket.open(:inet, :dgram, :icmp)
-  end
-
-  @impl GenServer
-  def handle_call({:send, ip, packet, ttl, timeout}, _from, socket) do
-    response = do_send(ip, packet, ttl, timeout, socket)
-
-    {:reply, response, socket}
-  end
-
-  @impl GenServer
-  def terminate(_reason, socket) do
-    :socket.close(socket)
-    :ok
-  end
-
-  defp do_send(ip, packet, ttl, timeout, socket) do
+  defp do_send(socket, packet, ip, ttl, timeout) do
     dest_addr = %{family: :inet, addr: ip}
 
     :ok = :socket.setopt(socket, {:ip, :ttl}, ttl)

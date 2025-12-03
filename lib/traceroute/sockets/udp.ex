@@ -10,79 +10,47 @@ defmodule Traceroute.Sockets.Udp do
   This is how traditional traceroute works - it uses separate sockets for sending and receiving.
   """
 
-  use GenServer
-
   @default_dest_port 33_434
 
-  @doc "Sends a packet through a temporary socket which is opened and closed for this packet."
-  def one_off_send(packet, ip, ttl, timeout) do
-    {:ok, pid} = start_link([])
-    response = send(pid, packet, ip, ttl, timeout)
-    stop(pid)
+  @doc """
+  Sends a UDP probe packet and waits for an ICMP response.
 
-    response
-  end
+  Opens UDP and ICMP sockets, sends the packet, waits for a response,
+  and closes the sockets before returning.
 
-  @doc "Starts the Socket GenServer"
-  def start_link(args \\ []) do
-    GenServer.start_link(__MODULE__, args)
-  end
+  ## Parameters
+    - packet: The data to send
+    - ip: The destination IP address as a tuple
+    - ttl: Time-to-live value for the packet
+    - timeout: Timeout in seconds to wait for a response
 
-  @doc "Sends a UDP probe packet to a given IP with a given TTL and timeout."
-  def send(pid, packet, ip, ttl, timeout) do
-    GenServer.call(pid, {:send, ip, packet, ttl, timeout}, to_timeout(second: timeout + 1))
-  end
+  ## Returns
+    - `{:ok, time_microseconds, reply_packet}` on success
+    - `{:error, reason}` on failure
+  """
+  def send(packet, ip, ttl, timeout, opts \\ []) do
+    dest_port = Keyword.get(opts, :dest_port, @default_dest_port)
 
-  @doc "Stops the Socket GenServer"
-  def stop(pid) do
-    GenServer.stop(pid, :normal)
-  end
-
-  # Callbacks
-
-  @impl GenServer
-  def init(args) do
-    dest_port = Keyword.get(args, :dest_port, @default_dest_port)
-
-    # Open both UDP (for sending) and ICMP (for receiving) sockets
     with {:ok, udp_socket} <- :socket.open(:inet, :dgram, :udp),
          {:ok, icmp_socket} <- :socket.open(:inet, :dgram, :icmp) do
-      state = %{
-        udp_socket: udp_socket,
-        icmp_socket: icmp_socket,
-        dest_port: dest_port
-      }
-
-      {:ok, state}
-    else
-      {:error, reason} ->
-        {:stop, reason}
+      try do
+        do_send(packet, ip, ttl, timeout, udp_socket, icmp_socket, dest_port)
+      after
+        :socket.close(udp_socket)
+        :socket.close(icmp_socket)
+      end
     end
   end
 
-  @impl GenServer
-  def handle_call({:send, ip, packet, ttl, timeout}, _from, state) do
-    response = do_send(ip, packet, ttl, timeout, state)
+  defp do_send(packet, ip, ttl, timeout, udp_socket, icmp_socket, dest_port) do
+    dest_addr = %{family: :inet, addr: ip, port: dest_port}
 
-    {:reply, response, state}
-  end
-
-  @impl GenServer
-  def terminate(_reason, state) do
-    :socket.close(state.udp_socket)
-    :socket.close(state.icmp_socket)
-    :ok
-  end
-
-  defp do_send(ip, packet, ttl, timeout, state) do
-    dest_addr = %{family: :inet, addr: ip, port: state.dest_port}
-
-    :ok = :socket.setopt(state.udp_socket, {:ip, :ttl}, ttl)
+    :ok = :socket.setopt(udp_socket, {:ip, :ttl}, ttl)
 
     {time, result} =
       :timer.tc(fn ->
-        :socket.sendto(state.udp_socket, packet, dest_addr)
-        :socket.recvfrom(state.icmp_socket, [], to_timeout(second: timeout))
+        :socket.sendto(udp_socket, packet, dest_addr)
+        :socket.recvfrom(icmp_socket, [], to_timeout(second: timeout))
       end)
 
     with {:ok, {_source, reply_packet}} <- result do

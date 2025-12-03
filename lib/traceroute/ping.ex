@@ -38,21 +38,31 @@ defmodule Traceroute.Ping do
 
     type
     |> Protocols.Icmp.encode_datagram(code, id, sequence, payload)
-    |> Sockets.Icmp.one_off_send(ip, opts.ttl, opts.timeout)
+    |> Sockets.Icmp.send(ip, opts.ttl, opts.timeout)
     |> parse_response()
   end
 
   defp do_run(:udp, ip, opts) do
     "probe"
-    |> Sockets.Udp.one_off_send(ip, opts.ttl, opts.timeout)
+    |> Sockets.Udp.send(ip, opts.ttl, opts.timeout)
     |> parse_response()
+  end
+
+  defp do_run(:tcp, ip, opts) do
+    ip
+    |> Sockets.Tcp.send(opts.ttl, opts.timeout)
+    |> parse_response()
+  end
+
+  defp parse_response({:ok, time, :reached}) do
+    {:ok, %{status: :reached, time: time}}
   end
 
   defp parse_response({:ok, time, reply_packet}) do
     {header, payload} = Protocols.Ipv4.split_header(reply_packet)
     data = Protocols.Icmp.decode_datagaram(payload)
 
-    reply = %{header: header, data: data, time: time}
+    reply = %{status: :in_progress, header: header, data: data, time: time}
 
     {:ok, reply}
   end

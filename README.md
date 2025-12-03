@@ -11,10 +11,13 @@ Traceroute.run("fly.io")
 ## `traceroute` commands
 
 ```bash
-# Use 1s timeout and the UDP protocol
-traceroute -w 1 -P UDP fly.io
 # Use 1s timeout and the ICMP protocol
 traceroute -w 1 -P ICMP fly.io
+# Use 1s timeout and the UDP protocol
+traceroute -w 1 -P UDP fly.io
+# Use 1s timeout and the TCP protocol
+# First try without `sudo` but you most likely need elevated permissions
+sudo traceroute -w 1 -P tcp google.com
 ```
 
 ## Comparisons
@@ -82,7 +85,58 @@ iex(1)> Traceroute.run("google.com", protocol: :udp)
   8 ams17s10-in-f14.1e100.net (142.250.179.142) 4.818ms
 ```
 
+### Tracing `peterullrich.com` through TCP
+
+```bash
+# Output of "
+➜  traceroute git:(main) ✗ sudo traceroute -w 1 -P tcp peterullrich.com
+traceroute to peterullrich.com (67.205.137.221), 64 hops max, 40 byte packets
+ 1  192.168.0.1 (192.168.0.1)  3.360 ms  2.787 ms  3.503 ms
+ 2  --redacted-- (--redacted--)  3.873 ms  3.847 ms  3.473 ms
+ 3  --redacted-- (--redacted--)  5.613 ms  5.436 ms  4.975 ms
+ 4  * * *
+ 5  * * *
+ 6  ae-6.r23.amstnl07.nl.bb.gin.ntt.net (129.250.2.232)  13.904 ms  16.534 ms  9.488 ms
+ 7  ae-0.r22.londen12.uk.bb.gin.ntt.net (129.250.5.151)  12.893 ms
+    ae-2.r22.parsfr04.fr.bb.gin.ntt.net (129.250.2.3)  19.339 ms
+    ae-0.r22.londen12.uk.bb.gin.ntt.net (129.250.5.151)  14.310 ms
+ 8  ae-14.r23.nwrknj03.us.bb.gin.ntt.net (129.250.4.194)  91.435 ms  88.211 ms  87.520 ms
+ 9  ae-8.a03.nycmny17.us.bb.gin.ntt.net (129.250.3.153)  90.290 ms
+    ae-1.a01.nwrknj03.us.bb.gin.ntt.net (129.250.3.25)  92.959 ms
+    ae-14.a00.nwrknj03.us.bb.gin.ntt.net (129.250.3.177)  97.526 ms
+10  ae-0.digital-ocean.nycmny17.us.bb.gin.ntt.net (157.238.179.70)  90.229 ms
+    ae-0.digital-ocean.nwrknj03.us.bb.gin.ntt.net (157.238.227.61)  89.552 ms  96.310 ms
+11  * * *
+12  * * *
+13  * * *
+14  * * *
+15  * * *
+# Max hops exceeded. Never reaches destination
+
+# Output of Traceroute.run/2
+iex(1)> Traceroute.run("peterullrich.com", protocol: :tcp)
+1 192.168.0.1 (192.168.0.1) 3.827ms
+2 --redacted-- (--redacted--) 19.156ms
+3 --redacted-- (--redacted--) 9.667ms
+4 * * *
+5 192.168.0.1 (192.168.0.1) 1000.543ms # TTL 5 bounces back to the modem?
+6 ae-6.r23.amstnl07.nl.bb.gin.ntt.net (129.250.2.232) 9.416ms
+7 ae-0.r22.londen12.uk.bb.gin.ntt.net (129.250.5.151) 27.946ms
+8 ae-14.r23.nwrknj03.us.bb.gin.ntt.net (129.250.4.194) 93.081ms
+9 ae-14.a02.nycmny17.us.bb.gin.ntt.net (129.250.3.51) 92.098ms
+10 ae-1.digital-ocean.nwrknj03.us.bb.gin.ntt.net (157.238.227.81) 89.091ms
+11 * * *
+12 ae-6.r23.amstnl07.nl.bb.gin.ntt.net (129.250.2.232) 1000.395ms
+13 ae-1.a01.nwrknj03.us.bb.gin.ntt.net (129.250.3.25) 1001.011ms
+14 * * *
+15 * * *
+16 * * *
+17 reached destination 96.644ms
+```
+
 # TODOs
 
 * [ ] Handle interweaved ICMP responses. Refactor ICMP response handlers to register themselves in a Registry and send the ICMP message their way based on the reply identifier.
-* [ ] Add TCP tracing
+* [x] Add TCP tracing
+* [ ] Handle UDP connection responses
+* [ ] Handle `max_hops_exceeded`

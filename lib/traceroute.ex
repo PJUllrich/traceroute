@@ -35,6 +35,11 @@ defmodule Traceroute do
         trace = [{ttl, time, response} | trace]
         {:ok, trace}
 
+      {:ok, %{status: :reached, time: time} = response} ->
+        log_response(ttl, response)
+        trace = [{ttl, time, response} | trace]
+        {:ok, trace}
+
       {:ok, response} ->
         log_response(ttl, response)
         trace = [{ttl, response.time, response} | trace]
@@ -64,6 +69,11 @@ defmodule Traceroute do
        }) do
     request_time = Float.round(time / 1000, 3)
     IO.write("\r#{ttl} #{source_domain} (#{:inet.ntoa(source_addr)}) #{request_time}ms\n")
+  end
+
+  defp log_response(ttl, %{time: time}) do
+    request_time = Float.round(time / 1000, 3)
+    IO.write("\r#{ttl} reached destination #{request_time}ms\n")
   end
 
   defp log_timeout(ttl, error) do
