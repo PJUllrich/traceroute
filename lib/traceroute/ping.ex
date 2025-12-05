@@ -4,11 +4,20 @@ defmodule Traceroute.Ping do
   """
 
   alias Traceroute.Protocols
+  alias Traceroute.Protocols.ICMP
+  alias Traceroute.Result.{DestinationReached, Hop}
   alias Traceroute.Sockets
   alias Traceroute.Utils
 
-  @doc "Send a Ping request to a given domain."
+  @doc """
+  Send a Ping request to a given domain.
 
+  Returns `{:ok, result}` where result is one of:
+    * `%Hop{}` - An intermediate hop responded
+    * `%DestinationReached{}` - The destination was reached
+
+  Or `{:error, reason}` on failure.
+  """
   def run(domain, opts \\ [])
 
   def run(domain, opts) when is_binary(domain) do
@@ -39,33 +48,72 @@ defmodule Traceroute.Ping do
     type
     |> Protocols.ICMP.encode_datagram(code, id, sequence, payload)
     |> Sockets.ICMP.send(ip, opts.ttl, opts.timeout)
-    |> parse_response()
+    |> parse_response(ip, opts.ttl)
   end
 
   defp do_run(:udp, ip, opts) do
     "probe"
     |> Sockets.UDP.send(ip, opts.ttl, opts.timeout)
-    |> parse_response()
+    |> parse_response(ip, opts.ttl)
   end
 
   defp do_run(:tcp, ip, opts) do
     ip
     |> Sockets.TCP.send(opts.ttl, opts.timeout)
-    |> parse_response()
+    |> parse_response(ip, opts.ttl)
   end
 
-  defp parse_response({:ok, time, :reached}) do
-    {:ok, %{status: :reached, time: time}}
+  # TCP reached destination (connection established or reset)
+  defp parse_response({:ok, time, :reached}, ip, ttl) do
+    domain = resolve_domain(ip)
+    {:ok, DestinationReached.new(ttl, time, ip, domain)}
   end
 
-  defp parse_response({:ok, time, reply_packet}) do
+  # Got an ICMP response packet
+  defp parse_response({:ok, time, reply_packet}, ip, ttl) do
     {header, payload} = Protocols.IPv4.split_header(reply_packet)
-    data = Protocols.ICMP.decode_datagaram(payload)
+    icmp = Protocols.ICMP.decode_datagram(payload)
 
-    reply = %{status: :in_progress, header: header, data: data, time: time}
-
-    {:ok, reply}
+    result = build_result(icmp, ip, ttl, time, header)
+    {:ok, result}
   end
 
-  defp parse_response(error), do: error
+  defp parse_response(error, _ip, _ttl), do: error
+
+  # Echo Reply from destination - we've reached it
+  defp build_result(%ICMP{reply: %ICMP.EchoReply{}} = icmp, ip, ttl, time, header) do
+    # When we get an echo reply, the source is our destination
+    domain = header.source_domain
+    addr = header.source_addr
+
+    # If the reply came from our target IP, it's definitely reached
+    if addr == ip do
+      DestinationReached.new(ttl, time, addr, domain)
+    else
+      # Reply from somewhere else (shouldn't happen normally)
+      Hop.new(ttl, time, header, icmp)
+    end
+  end
+
+  # Destination Unreachable (Port Unreachable) - destination reached via UDP
+  defp build_result(%ICMP{reply: %ICMP.DestinationUnreachable{}} = _icmp, _ip, ttl, time, header) do
+    DestinationReached.new(ttl, time, header.source_addr, header.source_domain)
+  end
+
+  # Time Exceeded - intermediate hop
+  defp build_result(%ICMP{reply: %ICMP.TimeExceeded{}} = icmp, _ip, ttl, time, header) do
+    Hop.new(ttl, time, header, icmp)
+  end
+
+  # Any other ICMP response - treat as a hop
+  defp build_result(%ICMP{} = icmp, _ip, ttl, time, header) do
+    Hop.new(ttl, time, header, icmp)
+  end
+
+  defp resolve_domain(ip) do
+    case Utils.get_domain(ip) do
+      {:ok, domain} -> domain
+      _error -> :inet.ntoa(ip)
+    end
+  end
 end

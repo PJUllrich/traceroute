@@ -138,6 +138,7 @@ iex(1)> Traceroute.run("peterullrich.com", protocol: :tcp)
 
 * [x] Add TCP tracing
 * [x] Allow disabling of output
-* [ ] Handle interweaved ICMP responses.
 * [x] Handle UDP connection responses
+* [ ] Handle interweaved ICMP responses.
 * [ ] Send multiple probes for every hop
+* [ ] Support IPv6

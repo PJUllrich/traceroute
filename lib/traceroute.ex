@@ -6,6 +6,8 @@ defmodule Traceroute do
   require Logger
 
   alias Traceroute.Ping
+  alias Traceroute.Result
+  alias Traceroute.Result.{DestinationReached, Error, Hop, Timeout}
   alias Traceroute.Utils
 
   @doc """
@@ -19,9 +21,11 @@ defmodule Traceroute do
     * `print_output: true|false`. Whether to print the output to STDOUT or not.
 
   ## Returns
-    * `{:ok, trace}` if destination is reached.
+    * `{:ok, trace}` if destination is reached, where trace is a list of `Result.t()`.
     * `{:error, :max_hops_exceeded, trace}` if max hops are exceeded.
   """
+  @spec run(String.t(), keyword()) ::
+          {:ok, Result.trace()} | {:error, :max_hops_exceeded, Result.trace()}
   def run(domain, opts \\ []) when is_binary(domain) do
     default_opts = [
       protocol: :icmp,
@@ -44,64 +48,78 @@ defmodule Traceroute do
 
   defp do_run(ip, ttl, max_hops, retries, trace, opts) do
     case Ping.run(ip, ttl: ttl, timeout: opts.timeout, protocol: opts.protocol) do
-      {:ok, %{time: time, header: %{source_addr: source_addr}} = response}
-      when source_addr == ip ->
-        print(:response, ttl, response, opts)
-        trace = [{ttl, time, response} | trace]
-        {:ok, trace}
+      {:ok, %DestinationReached{} = result} ->
+        print(result, opts)
+        {:ok, Enum.reverse([result | trace])}
 
-      {:ok, %{status: :reached, time: time} = response} ->
-        print(:response, ttl, response, opts)
-        trace = [{ttl, time, response} | trace]
-        {:ok, trace}
-
-      {:ok, response} ->
-        print(:response, ttl, response, opts)
-        trace = [{ttl, response.time, response} | trace]
-        do_run(ip, ttl + 1, max_hops - 1, 0, trace, opts)
+      {:ok, %Hop{} = hop} ->
+        print(hop, opts)
+        do_run(ip, ttl + 1, max_hops - 1, 0, [hop | trace], opts)
 
       {:error, :timeout} ->
-        stars = "*" |> List.duplicate(min(retries + 1, opts.max_retries)) |> Enum.join(" ")
+        handle_timeout(ip, ttl, max_hops, retries, trace, opts)
 
-        if retries < opts.max_retries do
-          print(:timeout, ttl, stars, opts)
-          do_run(ip, ttl, max_hops, retries + 1, trace, opts)
-        else
-          print(:timeout, ttl, stars <> "\n", opts)
-          do_run(ip, ttl + 1, max_hops - 1, 0, [{ttl, :timeout} | trace], opts)
-        end
-
-      {:error, error} ->
-        print(:error, ttl, error, opts)
-        trace = [{ttl, error} | trace]
-        do_run(ip, ttl + 1, max_hops - 1, 0, trace, opts)
+      {:error, reason} ->
+        error = Error.new(ttl, reason)
+        print(error, opts)
+        do_run(ip, ttl + 1, max_hops - 1, 0, [error | trace], opts)
     end
   end
 
-  defp print(type, ttl, data, opts) do
-    if Map.fetch!(opts, :print_output) do
-      do_print(type, ttl, data)
+  defp handle_timeout(ip, ttl, max_hops, retries, trace, opts) do
+    stars = "*" |> List.duplicate(min(retries + 1, opts.max_retries)) |> Enum.join(" ")
+
+    if retries < opts.max_retries do
+      print_timeout_retry(ttl, stars, opts)
+      do_run(ip, ttl, max_hops, retries + 1, trace, opts)
+    else
+      timeout = Timeout.new(ttl, opts.max_retries)
+      print_timeout_final(ttl, stars, opts)
+      do_run(ip, ttl + 1, max_hops - 1, 0, [timeout | trace], opts)
     end
   end
 
-  defp do_print(:response, ttl, %{
-         time: time,
-         header: %{source_domain: source_domain, source_addr: source_addr}
-       }) do
-    request_time = Float.round(time / 1000, 3)
-    IO.write("\r#{ttl} #{source_domain} (#{:inet.ntoa(source_addr)}) #{request_time}ms\n")
+  # Printing helpers
+
+  defp print(result, opts) do
+    if opts.print_output do
+      do_print(result)
+    end
   end
 
-  defp do_print(:response, ttl, %{time: time}) do
-    request_time = Float.round(time / 1000, 3)
-    IO.write("\r#{ttl} reached destination #{request_time}ms\n")
+  defp print_timeout_retry(ttl, stars, opts) do
+    if opts.print_output do
+      IO.write("\r#{ttl} #{stars}")
+    end
   end
 
-  defp do_print(:timeout, ttl, error) do
-    IO.write("\r#{ttl} #{error}")
+  defp print_timeout_final(ttl, stars, opts) do
+    if opts.print_output do
+      IO.write("\r#{ttl} #{stars}\n")
+    end
   end
 
-  defp do_print(:error, ttl, error) do
-    IO.write("\r#{ttl} #{error}\n")
+  defp do_print(%Hop{} = hop) do
+    time_ms = Hop.time_ms(hop)
+    IO.write("\r#{hop.ttl} #{hop.source_domain} (#{format_addr(hop.source_addr)}) #{time_ms}ms\n")
   end
+
+  defp do_print(%DestinationReached{} = dest) do
+    time_ms = DestinationReached.time_ms(dest)
+
+    case dest.domain do
+      nil ->
+        IO.write("\r#{dest.ttl} #{format_addr(dest.addr)} #{time_ms}ms\n")
+
+      domain ->
+        IO.write("\r#{dest.ttl} #{domain} (#{format_addr(dest.addr)}) #{time_ms}ms\n")
+    end
+  end
+
+  defp do_print(%Error{} = error) do
+    IO.write("\r#{error.ttl} #{inspect(error.reason)}\n")
+  end
+
+  defp format_addr(addr) when is_tuple(addr), do: :inet.ntoa(addr)
+  defp format_addr(addr), do: addr
 end

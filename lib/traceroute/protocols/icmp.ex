@@ -7,6 +7,28 @@ defmodule Traceroute.Protocols.ICMP do
 
   import Bitwise
 
+  alias __MODULE__.{DestinationUnreachable, EchoReply, RequestDatagram, TimeExceeded, Unparsed}
+
+  defstruct [
+    :type,
+    :code,
+    :checksum,
+    :reply
+  ]
+
+  @type reply ::
+          EchoReply.t()
+          | TimeExceeded.t()
+          | DestinationUnreachable.t()
+          | Unparsed.t()
+
+  @type t :: %__MODULE__{
+          type: non_neg_integer(),
+          code: non_neg_integer(),
+          checksum: binary(),
+          reply: reply()
+        }
+
   @doc """
   Encodes an ICMP datagram which consists of a header and data section.
 
@@ -21,6 +43,13 @@ defmodule Traceroute.Protocols.ICMP do
   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
   """
+  @spec encode_datagram(
+          type :: non_neg_integer(),
+          code :: non_neg_integer(),
+          id :: non_neg_integer(),
+          sequence :: non_neg_integer(),
+          payload :: binary()
+        ) :: binary()
   def encode_datagram(type, code, id, sequence, payload) do
     header = <<type, code, 0::16, id::16, sequence::16>>
 
@@ -39,13 +68,14 @@ defmodule Traceroute.Protocols.ICMP do
     >>
   end
 
-  def decode_datagaram(payload) do
-    <<type::8, code::8, checksum::16, _unused::8, _length::8, _next_hop_mtu::16, data::bytes>> =
+  @spec decode_datagram(binary()) :: t()
+  def decode_datagram(payload) do
+    <<type::8, code::8, checksum::16, _unused::8, _length::8, _next_hop_mtu::16, data::binary>> =
       payload
 
     reply = parse_reply(type, code, data)
 
-    %{
+    %__MODULE__{
       type: type,
       code: code,
       checksum: <<checksum::16>>,
@@ -53,67 +83,24 @@ defmodule Traceroute.Protocols.ICMP do
     }
   end
 
-  # Echo Reply
+  # Echo Reply (Type 0, Code 0)
   defp parse_reply(0, 0, payload) do
-    <<identifier::16, sequence::16, data::bytes>> = payload
-
-    %{
-      type: :echo_reply,
-      identifier: identifier,
-      sequence: sequence,
-      data: data
-    }
+    EchoReply.parse(payload)
   end
 
-  # Time exceeded
-  defp parse_reply(11, _reply_code, payload) do
-    <<_ihl_version::4, ihl::4, rest::bytes>> = payload
-    <<ipv4_header::bytes-size(ihl * 4 - 1), data::bytes>> = rest
-    <<_::bytes-size(8), protocol::8, _rest::bytes>> = ipv4_header
+  # Time Exceeded (Type 11)
+  defp parse_reply(11, _code, payload) do
+    {protocol, data} = extract_original_packet(payload)
 
-    # Parse the first bytes of the original datagram which gives the id for correlation.
-    <<
-      # Line 1
-      type::8,
-      code::8,
-      checksum::binary-size(2),
-      # Line 2
-      id::16,
-      sequence::16,
-      rest::bytes
-    >> = data
-
-    %{
-      type: :time_exceeded,
+    %TimeExceeded{
       protocol: protocol,
-      request_datagram: %{
-        type: type,
-        code: code,
-        checksum: checksum,
-        id: id,
-        sequence: sequence,
-        rest: rest
-      }
+      request_datagram: RequestDatagram.parse(data)
     }
   end
 
-  # Destination Unreachable
-  #
-  # Returned from destination when UDP package reaches it but can't connect to the destination port
-  # which is intended. This basically means that the packet has reached the destination server.
+  # Destination Unreachable - Port Unreachable (Type 3, Code 3)
   defp parse_reply(3, 3, payload) do
-    <<_ihl_version::4, ihl::4, rest::bytes>> = payload
-    <<ipv4_header::bytes-size(ihl * 4 - 1), data::bytes>> = rest
-    <<_::bytes-size(8), protocol::8, _rest::bytes>> = ipv4_header
-
-    # Map the protocol
-    # https://en.wikipedia.org/wiki/IPv4#Protocol
-    protocol =
-      case protocol do
-        1 -> :icmp
-        6 -> :tcp
-        17 -> :udp
-      end
+    {protocol, data} = extract_original_packet(payload)
 
     data =
       if protocol == :udp do
@@ -122,23 +109,44 @@ defmodule Traceroute.Protocols.ICMP do
         data
       end
 
-    %{
-      type: :destination_unreachable,
+    %DestinationUnreachable{
       protocol: protocol,
       data: data
     }
   end
 
-  defp parse_reply(_type, _code, payload) do
-    %{
-      type: :unparsed,
+  # Fallback for unhandled ICMP types
+  defp parse_reply(type, code, payload) do
+    %Unparsed{
+      type: type,
+      code: code,
       payload: payload
     }
   end
 
+  # Extracts the original packet from an ICMP error response.
+  # Returns the protocol and the data portion after the IPv4 header.
+  defp extract_original_packet(payload) do
+    <<_ihl_version::4, ihl::4, rest::binary>> = payload
+    <<ipv4_header::binary-size(ihl * 4 - 1), data::binary>> = rest
+    <<_::binary-size(8), protocol_num::8, _rest::binary>> = ipv4_header
+
+    protocol = parse_protocol(protocol_num)
+
+    {protocol, data}
+  end
+
+  # Maps IPv4 protocol numbers to atoms
+  # https://en.wikipedia.org/wiki/IPv4#Protocol
+  defp parse_protocol(1), do: :icmp
+  defp parse_protocol(6), do: :tcp
+  defp parse_protocol(17), do: :udp
+  defp parse_protocol(n), do: n
+
+  @spec checksum(binary()) :: binary()
   def checksum(data), do: checksum(data, 0)
 
-  defp checksum(<<val::16, rest::bytes>>, sum), do: checksum(rest, sum + val)
+  defp checksum(<<val::16, rest::binary>>, sum), do: checksum(rest, sum + val)
   # Pad the data if it's not divisible by 16 bits
   defp checksum(<<val::8>>, sum), do: checksum(<<val, 0>>, sum)
 
