@@ -37,20 +37,20 @@ defmodule Traceroute.Ping do
     payload = "ping"
 
     type
-    |> Protocols.Icmp.encode_datagram(code, id, sequence, payload)
-    |> Sockets.Icmp.send(ip, opts.ttl, opts.timeout)
+    |> Protocols.ICMP.encode_datagram(code, id, sequence, payload)
+    |> Sockets.ICMP.send(ip, opts.ttl, opts.timeout)
     |> parse_response()
   end
 
   defp do_run(:udp, ip, opts) do
     "probe"
-    |> Sockets.Udp.send(ip, opts.ttl, opts.timeout)
+    |> Sockets.UDP.send(ip, opts.ttl, opts.timeout)
     |> parse_response()
   end
 
   defp do_run(:tcp, ip, opts) do
     ip
-    |> Sockets.Tcp.send(opts.ttl, opts.timeout)
+    |> Sockets.TCP.send(opts.ttl, opts.timeout)
     |> parse_response()
   end
 
@@ -59,8 +59,8 @@ defmodule Traceroute.Ping do
   end
 
   defp parse_response({:ok, time, reply_packet}) do
-    {header, payload} = Protocols.Ipv4.split_header(reply_packet)
-    data = Protocols.Icmp.decode_datagaram(payload)
+    {header, payload} = Protocols.IPv4.split_header(reply_packet)
+    data = Protocols.ICMP.decode_datagaram(payload)
 
     reply = %{status: :in_progress, header: header, data: data, time: time}
 

@@ -1,4 +1,4 @@
-defmodule Traceroute.Protocols.Udp do
+defmodule Traceroute.Protocols.UDP do
   @moduledoc """
   Parses UDP datagram and headers.
   """

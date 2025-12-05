@@ -136,7 +136,8 @@ iex(1)> Traceroute.run("peterullrich.com", protocol: :tcp)
 
 # TODOs
 
-* [ ] Handle interweaved ICMP responses. Refactor ICMP response handlers to register themselves in a Registry and send the ICMP message their way based on the reply identifier.
 * [x] Add TCP tracing
-* [ ] Handle UDP connection responses
-* [ ] Handle `max_hops_exceeded`
+* [x] Allow disabling of output
+* [ ] Handle interweaved ICMP responses.
+* [x] Handle UDP connection responses
+* [ ] Send multiple probes for every hop

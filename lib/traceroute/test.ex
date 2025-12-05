@@ -20,7 +20,7 @@ defmodule Traceroute.Test do
     sequence = 1
     payload = "ping"
 
-    datagram = Traceroute.Protocols.Icmp.encode_datagram(type, code, id, sequence, payload)
+    datagram = Traceroute.Protocols.ICMP.encode_datagram(type, code, id, sequence, payload)
 
     # :ok = :socket.setopt(socket, {:ip, :ttl}, 3)
     :socket.sendto(socket, datagram, dest_addr)

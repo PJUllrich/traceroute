@@ -1,4 +1,4 @@
-defmodule Traceroute.Protocols.Icmp do
+defmodule Traceroute.Protocols.ICMP do
   @moduledoc """
   Implements the encoding and decoding of ICMP packets.
 
@@ -117,7 +117,7 @@ defmodule Traceroute.Protocols.Icmp do
 
     data =
       if protocol == :udp do
-        Traceroute.Protocols.Udp.parse_datagram(data)
+        Traceroute.Protocols.UDP.parse_datagram(data)
       else
         data
       end

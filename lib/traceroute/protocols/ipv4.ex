@@ -1,4 +1,4 @@
-defmodule Traceroute.Protocols.Ipv4 do
+defmodule Traceroute.Protocols.IPv4 do
   @moduledoc """
   Implements decoding IPv4 Headers.
   """
