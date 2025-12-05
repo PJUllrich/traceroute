@@ -6,48 +6,78 @@ defmodule Traceroute.Result.DestinationReached do
   - An ICMP Echo Reply is received from the target IP
   - An ICMP Destination Unreachable (Port Unreachable) is received for UDP probes
   - A TCP connection is established or reset by the target
+
+  When multiple probes are sent in parallel, they are collected into a single
+  DestinationReached result with all probes listed.
+
+  ## Fields
+
+    * `:ttl` - The TTL value at which the destination was reached (hop count)
+    * `:probes` - List of individual probe results for this destination
   """
 
-  defstruct [
-    :ttl,
-    :time,
-    :addr,
-    :domain
-  ]
+  alias Traceroute.Result.Probe
+
+  defstruct [:ttl, :probes]
 
   @type t :: %__MODULE__{
           ttl: pos_integer(),
-          time: non_neg_integer(),
-          addr: :inet.ip4_address(),
-          domain: String.t() | charlist() | nil
+          probes: [Probe.t()]
         }
 
   @doc """
-  Creates a new DestinationReached result.
-
-  ## Parameters
-
-    * `ttl` - The TTL value at which the destination was reached (hop count)
-    * `time` - Round-trip time in microseconds
-    * `addr` - The IP address of the destination
-    * `domain` - The resolved domain name (optional)
+  Creates a new DestinationReached result from a TTL and a single probe or list of probes.
   """
-  @spec new(pos_integer(), non_neg_integer(), :inet.ip4_address(), String.t() | charlist() | nil) ::
-          t()
-  def new(ttl, time, addr, domain \\ nil) do
+  @spec new(pos_integer(), Probe.t() | [Probe.t()]) :: t()
+  def new(ttl, probe_or_probes)
+
+  def new(ttl, %Probe{} = probe) do
     %__MODULE__{
       ttl: ttl,
-      time: time,
-      addr: addr,
-      domain: domain
+      probes: [probe]
+    }
+  end
+
+  def new(ttl, probes) when is_list(probes) do
+    %__MODULE__{
+      ttl: ttl,
+      probes: probes
     }
   end
 
   @doc """
-  Returns the round-trip time in milliseconds.
+  Returns the source address from the first probe, or nil if no probes.
   """
-  @spec time_ms(t()) :: float()
-  def time_ms(%__MODULE__{time: time}) do
-    Float.round(time / 1000, 3)
+  @spec source_addr(t()) :: :inet.ip4_address() | nil
+  def source_addr(%__MODULE__{probes: []}) do
+    nil
+  end
+
+  def source_addr(%__MODULE__{probes: [probe | _]}) do
+    probe.source_addr
+  end
+
+  @doc """
+  Returns the source domain from the first probe, or nil if no probes.
+  """
+  @spec source_domain(t()) :: String.t() | charlist() | nil
+  def source_domain(%__MODULE__{probes: []}) do
+    nil
+  end
+
+  def source_domain(%__MODULE__{probes: [probe | _]}) do
+    probe.source_domain
+  end
+
+  @doc """
+  Returns the round-trip time in milliseconds for the first probe.
+  """
+  @spec time_ms(t()) :: float() | nil
+  def time_ms(%__MODULE__{probes: []}) do
+    nil
+  end
+
+  def time_ms(%__MODULE__{probes: [probe | _]}) do
+    Probe.time_ms(probe)
   end
 end

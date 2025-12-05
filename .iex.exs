@@ -1,1 +1,4 @@
-IEx.configure(inspect: [base: :decimal, charlists: :as_lists, binaries: :as_binaries])
+IEx.configure(
+  inspect: [base: :decimal, charlists: :as_lists, binaries: :as_binaries],
+  auto_reload: true
+)

@@ -11,6 +11,13 @@ defmodule Traceroute.Sockets.UDP do
   3. The UDP socket triggers ICMP errors, but we read them from the ICMP socket
 
   If the probe reaches an open port, it will be accepted silently and no response is sent. That means that the probe will result in a `timeout`. You can try to increment the UDP port with every retry probe to prevent this.
+
+  ## Response Filtering
+
+  When multiple UDP sockets run in parallel, each socket may receive ICMP
+  responses intended for other sockets. This module filters responses by
+  matching the UDP source port in the ICMP error message against the source
+  port used by this socket.
   """
 
   defstruct [
@@ -19,6 +26,7 @@ defmodule Traceroute.Sockets.UDP do
     :ttl,
     :timeout,
     :dest_port,
+    :source_port,
     :udp_socket,
     :icmp_socket,
     :caller,
@@ -31,6 +39,7 @@ defmodule Traceroute.Sockets.UDP do
   require Logger
 
   alias __MODULE__
+  alias Traceroute.Utils
 
   @default_dest_port 33_434
 
@@ -65,6 +74,7 @@ defmodule Traceroute.Sockets.UDP do
       ttl: Keyword.fetch!(args, :ttl),
       timeout: Keyword.fetch!(args, :timeout),
       dest_port: Keyword.get(opts, :dest_port, @default_dest_port),
+      source_port: nil,
       udp_socket: nil,
       icmp_socket: nil,
       caller: nil,
@@ -81,8 +91,18 @@ defmodule Traceroute.Sockets.UDP do
 
     with {:ok, udp_socket} <- :socket.open(:inet, :dgram, :udp),
          :ok <- :socket.setopt(udp_socket, {:ip, :ttl}, state.ttl),
+         # Bind to port 0 to let the OS assign an ephemeral port
+         :ok <- :socket.bind(udp_socket, %{family: :inet, addr: {0, 0, 0, 0}, port: 0}),
+         {:ok, %{port: source_port}} <- :socket.sockname(udp_socket),
          {:ok, icmp_socket} <- :socket.open(:inet, :dgram, :icmp) do
-      state = %UDP{state | udp_socket: udp_socket, icmp_socket: icmp_socket, caller: from}
+      state = %UDP{
+        state
+        | udp_socket: udp_socket,
+          icmp_socket: icmp_socket,
+          caller: from,
+          source_port: source_port
+      }
+
       start_probe(state)
     else
       {:error, reason} ->
@@ -133,8 +153,13 @@ defmodule Traceroute.Sockets.UDP do
   defp receive_icmp(state) do
     case :socket.recvfrom(state.icmp_socket, 0, :nowait) do
       {:ok, {_source, reply_packet}} ->
-        Logger.debug("Received ICMP response.")
-        reply_and_stop({:ok, elapsed(state), reply_packet}, state)
+        if Utils.icmp_response_matches?(reply_packet, state.source_port) do
+          Logger.debug("Received matching ICMP response.")
+          reply_and_stop({:ok, elapsed(state), reply_packet}, state)
+        else
+          Logger.debug("Ignoring ICMP response with non-matching source port.")
+          {:noreply, state}
+        end
 
       {:select, _select_info} ->
         {:noreply, state}

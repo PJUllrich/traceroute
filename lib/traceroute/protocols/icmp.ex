@@ -8,6 +8,8 @@ defmodule Traceroute.Protocols.ICMP do
   import Bitwise
 
   alias __MODULE__.{DestinationUnreachable, EchoReply, RequestDatagram, TimeExceeded, Unparsed}
+  alias Traceroute.Protocols.TCP, as: TCPProtocol
+  alias Traceroute.Protocols.UDP, as: UDPProtocol
 
   defstruct [
     :type,
@@ -70,10 +72,9 @@ defmodule Traceroute.Protocols.ICMP do
 
   @spec decode_datagram(binary()) :: t()
   def decode_datagram(payload) do
-    <<type::8, code::8, checksum::16, _unused::8, _length::8, _next_hop_mtu::16, data::binary>> =
-      payload
+    <<type::8, code::8, checksum::16, rest::binary>> = payload
 
-    reply = parse_reply(type, code, data)
+    reply = parse_reply(type, code, rest)
 
     %__MODULE__{
       type: type,
@@ -84,34 +85,50 @@ defmodule Traceroute.Protocols.ICMP do
   end
 
   # Echo Reply (Type 0, Code 0)
-  defp parse_reply(0, 0, payload) do
-    EchoReply.parse(payload)
+  # The 4 bytes after checksum are: identifier (16 bits) + sequence (16 bits)
+  defp parse_reply(0, 0, <<identifier::16, sequence::16, data::binary>>) do
+    %EchoReply{
+      identifier: identifier,
+      sequence: sequence,
+      data: data
+    }
   end
 
   # Time Exceeded (Type 11)
-  defp parse_reply(11, _code, payload) do
+  # The 4 bytes after checksum are: unused (32 bits), then the original IP header + data
+  defp parse_reply(11, _code, <<_unused::32, payload::binary>>) do
     {protocol, data} = extract_original_packet(payload)
+
+    parsed_data =
+      case protocol do
+        :icmp -> RequestDatagram.parse(data)
+        :udp -> UDPProtocol.parse_datagram(data)
+        :tcp -> TCPProtocol.parse_header(data)
+        _ -> data
+      end
 
     %TimeExceeded{
       protocol: protocol,
-      request_datagram: RequestDatagram.parse(data)
+      request_datagram: parsed_data
     }
   end
 
   # Destination Unreachable - Port Unreachable (Type 3, Code 3)
-  defp parse_reply(3, 3, payload) do
+  # The 4 bytes after checksum are: unused (16 bits) + next-hop MTU (16 bits), then original packet
+  defp parse_reply(3, 3, <<_unused::16, _next_hop_mtu::16, payload::binary>>) do
     {protocol, data} = extract_original_packet(payload)
 
-    data =
-      if protocol == :udp do
-        Traceroute.Protocols.UDP.parse_datagram(data)
-      else
-        data
+    parsed_data =
+      case protocol do
+        :icmp -> RequestDatagram.parse(data)
+        :udp -> UDPProtocol.parse_datagram(data)
+        :tcp -> TCPProtocol.parse_header(data)
+        _ -> data
       end
 
     %DestinationUnreachable{
       protocol: protocol,
-      data: data
+      data: parsed_data
     }
   end
 

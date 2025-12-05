@@ -10,11 +10,20 @@ defmodule Traceroute.Sockets.TCP do
   - TCP connection refused/reset (reached destination, port closed)
   - ICMP Time Exceeded received (intermediate hop responded)
   - Timeout (no response)
+
+  ## Response Filtering
+
+  When multiple TCP sockets run in parallel, each socket may receive ICMP
+  responses intended for other sockets. This module filters responses by
+  matching the TCP source port in the ICMP error message against the source
+  port used by this socket.
   """
 
   use GenServer
 
   require Logger
+
+  alias Traceroute.Utils
 
   @default_dest_port 80
 
@@ -46,6 +55,7 @@ defmodule Traceroute.Sockets.TCP do
       ttl: Keyword.fetch!(args, :ttl),
       timeout: Keyword.fetch!(args, :timeout),
       dest_port: Keyword.get(args, :opts, []) |> Keyword.get(:dest_port, @default_dest_port),
+      source_port: nil,
       tcp_socket: nil,
       icmp_socket: nil,
       caller: nil,
@@ -62,8 +72,18 @@ defmodule Traceroute.Sockets.TCP do
 
     with {:ok, tcp_socket} <- :socket.open(:inet, :stream, :tcp),
          :ok <- :socket.setopt(tcp_socket, {:ip, :ttl}, state.ttl),
+         # Bind to port 0 to let the OS assign an ephemeral port
+         :ok <- :socket.bind(tcp_socket, %{family: :inet, addr: {0, 0, 0, 0}, port: 0}),
+         {:ok, %{port: source_port}} <- :socket.sockname(tcp_socket),
          {:ok, icmp_socket} <- :socket.open(:inet, :dgram, :icmp) do
-      state = %{state | tcp_socket: tcp_socket, icmp_socket: icmp_socket, caller: from}
+      state = %{
+        state
+        | tcp_socket: tcp_socket,
+          icmp_socket: icmp_socket,
+          caller: from,
+          source_port: source_port
+      }
+
       start_probe(state)
     else
       {:error, reason} ->
@@ -141,8 +161,13 @@ defmodule Traceroute.Sockets.TCP do
   defp receive_icmp(state) do
     case :socket.recvfrom(state.icmp_socket, 0, :nowait) do
       {:ok, {_source, reply_packet}} ->
-        Logger.debug("Received ICMP response.")
-        reply_and_stop({:ok, elapsed(state), reply_packet}, state)
+        if Utils.icmp_response_matches?(reply_packet, state.source_port) do
+          Logger.debug("Received matching ICMP response.")
+          reply_and_stop({:ok, elapsed(state), reply_packet}, state)
+        else
+          Logger.debug("Ignoring ICMP response with non-matching source port.")
+          {:noreply, state}
+        end
 
       {:select, _select_info} ->
         {:noreply, state}

@@ -5,7 +5,7 @@ defmodule Traceroute.Ping do
 
   alias Traceroute.Protocols
   alias Traceroute.Protocols.ICMP
-  alias Traceroute.Result.{DestinationReached, Hop}
+  alias Traceroute.Result.{DestinationReached, Probe}
   alias Traceroute.Sockets
   alias Traceroute.Utils
 
@@ -13,7 +13,7 @@ defmodule Traceroute.Ping do
   Send a Ping request to a given domain.
 
   Returns `{:ok, result}` where result is one of:
-    * `%Hop{}` - An intermediate hop responded
+    * `%Probe{}` - An intermediate router responded
     * `%DestinationReached{}` - The destination was reached
 
   Or `{:error, reason}` on failure.
@@ -47,7 +47,7 @@ defmodule Traceroute.Ping do
 
     type
     |> Protocols.ICMP.encode_datagram(code, id, sequence, payload)
-    |> Sockets.ICMP.send(ip, opts.ttl, opts.timeout)
+    |> Sockets.ICMP.send(ip, opts.ttl, opts.timeout, identifier: id)
     |> parse_response(ip, opts.ttl)
   end
 
@@ -66,7 +66,9 @@ defmodule Traceroute.Ping do
   # TCP reached destination (connection established or reset)
   defp parse_response({:ok, time, :reached}, ip, ttl) do
     domain = resolve_domain(ip)
-    {:ok, DestinationReached.new(ttl, time, ip, domain)}
+    header = %{source_addr: ip, source_domain: domain}
+    probe = Probe.new(ttl, time, header, nil)
+    {:ok, DestinationReached.new(ttl, probe)}
   end
 
   # Got an ICMP response packet
@@ -82,32 +84,30 @@ defmodule Traceroute.Ping do
 
   # Echo Reply from destination - we've reached it
   defp build_result(%ICMP{reply: %ICMP.EchoReply{}} = icmp, ip, ttl, time, header) do
-    # When we get an echo reply, the source is our destination
-    domain = header.source_domain
-    addr = header.source_addr
-
     # If the reply came from our target IP, it's definitely reached
-    if addr == ip do
-      DestinationReached.new(ttl, time, addr, domain)
+    if header.source_addr == ip do
+      probe = Probe.new(ttl, time, header, icmp)
+      DestinationReached.new(ttl, probe)
     else
       # Reply from somewhere else (shouldn't happen normally)
-      Hop.new(ttl, time, header, icmp)
+      Probe.new(ttl, time, header, icmp)
     end
   end
 
   # Destination Unreachable (Port Unreachable) - destination reached via UDP
-  defp build_result(%ICMP{reply: %ICMP.DestinationUnreachable{}} = _icmp, _ip, ttl, time, header) do
-    DestinationReached.new(ttl, time, header.source_addr, header.source_domain)
+  defp build_result(%ICMP{reply: %ICMP.DestinationUnreachable{}} = icmp, _ip, ttl, time, header) do
+    probe = Probe.new(ttl, time, header, icmp)
+    DestinationReached.new(ttl, probe)
   end
 
-  # Time Exceeded - intermediate hop
+  # Time Exceeded - intermediate probe
   defp build_result(%ICMP{reply: %ICMP.TimeExceeded{}} = icmp, _ip, ttl, time, header) do
-    Hop.new(ttl, time, header, icmp)
+    Probe.new(ttl, time, header, icmp)
   end
 
-  # Any other ICMP response - treat as a hop
+  # Any other ICMP response - treat as a probe
   defp build_result(%ICMP{} = icmp, _ip, ttl, time, header) do
-    Hop.new(ttl, time, header, icmp)
+    Probe.new(ttl, time, header, icmp)
   end
 
   defp resolve_domain(ip) do

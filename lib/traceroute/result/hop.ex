@@ -1,54 +1,66 @@
 defmodule Traceroute.Result.Hop do
   @moduledoc """
-  Represents an intermediate hop in a traceroute.
+  Represents a hop in a traceroute, containing one or more probe results.
 
-  A hop is recorded when a router along the path responds with an ICMP
-  Time Exceeded message after the packet's TTL reaches zero.
+  A hop groups all probe responses for a given TTL value. When multiple
+  probes are sent in parallel, they are collected into a single hop.
 
   ## Fields
 
-    * `:ttl` - The TTL value used for this probe (hop number)
-    * `:time` - Round-trip time in microseconds
-    * `:source_addr` - IP address of the responding router as a tuple
-    * `:source_domain` - Hostname of the responding router (or IP string if DNS lookup fails)
-    * `:icmp` - The parsed ICMP response struct
+    * `:ttl` - The TTL value used for this hop (hop number)
+    * `:probes` - List of probe results for this hop
   """
 
-  defstruct [
-    :ttl,
-    :time,
-    :source_addr,
-    :source_domain,
-    :icmp
-  ]
+  alias Traceroute.Result.Probe
+
+  defstruct [:ttl, :probes]
 
   @type t :: %__MODULE__{
           ttl: pos_integer(),
-          time: non_neg_integer(),
-          source_addr: :inet.ip4_address(),
-          source_domain: String.t() | charlist(),
-          icmp: Traceroute.Protocols.ICMP.t()
+          probes: [Probe.t()]
         }
 
   @doc """
-  Creates a new Hop from the TTL, response time, IPv4 header, and ICMP data.
+  Creates a new Hop from a TTL and a single probe or list of probes.
   """
-  @spec new(pos_integer(), non_neg_integer(), map(), Traceroute.Protocols.ICMP.t()) :: t()
-  def new(ttl, time, ipv4_header, icmp) do
+  @spec new(pos_integer(), Probe.t() | [Probe.t()]) :: t()
+  def new(ttl, probe_or_probes)
+
+  def new(ttl, %Probe{} = probe) do
     %__MODULE__{
       ttl: ttl,
-      time: time,
-      source_addr: ipv4_header.source_addr,
-      source_domain: ipv4_header.source_domain,
-      icmp: icmp
+      probes: [probe]
+    }
+  end
+
+  def new(ttl, probes) when is_list(probes) do
+    %__MODULE__{
+      ttl: ttl,
+      probes: probes
     }
   end
 
   @doc """
-  Returns the round-trip time formatted in milliseconds.
+  Returns the source address from the first probe, or nil if no probes.
   """
-  @spec time_ms(t()) :: float()
-  def time_ms(%__MODULE__{time: time}) do
-    Float.round(time / 1000, 3)
+  @spec source_addr(t()) :: :inet.ip4_address() | nil
+  def source_addr(%__MODULE__{probes: []}) do
+    nil
+  end
+
+  def source_addr(%__MODULE__{probes: [probe | _]}) do
+    probe.source_addr
+  end
+
+  @doc """
+  Returns the source domain from the first probe, or nil if no probes.
+  """
+  @spec source_domain(t()) :: String.t() | charlist() | nil
+  def source_domain(%__MODULE__{probes: []}) do
+    nil
+  end
+
+  def source_domain(%__MODULE__{probes: [probe | _]}) do
+    probe.source_domain
   end
 end

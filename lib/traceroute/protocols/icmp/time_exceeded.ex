@@ -8,7 +8,11 @@ defmodule Traceroute.Protocols.ICMP.TimeExceeded do
   ## Fields
 
     * `:protocol` - The protocol of the original packet (`:icmp`, `:tcp`, or `:udp`)
-    * `:request_datagram` - The original datagram that triggered this response
+    * `:request_datagram` - The original datagram/header that triggered this response.
+      The type depends on the protocol:
+      - `:icmp` -> `RequestDatagram.t()`
+      - `:udp` -> `UDP.Datagram.t()`
+      - `:tcp` -> `TCP.Header.t()`
 
   ## Codes
 
@@ -17,11 +21,13 @@ defmodule Traceroute.Protocols.ICMP.TimeExceeded do
   """
 
   alias Traceroute.Protocols.ICMP.RequestDatagram
+  alias Traceroute.Protocols.TCP
+  alias Traceroute.Protocols.UDP
 
   defstruct [:protocol, :request_datagram]
 
   @type t :: %__MODULE__{
           protocol: :icmp | :tcp | :udp | non_neg_integer(),
-          request_datagram: RequestDatagram.t()
+          request_datagram: RequestDatagram.t() | UDP.Datagram.t() | TCP.Header.t() | binary()
         }
 end

@@ -4,6 +4,13 @@ defmodule Traceroute.Sockets.ICMP do
 
   Opens an ICMP datagram network socket, sends out ICMP packets, and receives
   responses using asynchronous socket operations with GenServer message handling.
+
+  ## Response Filtering
+
+  When multiple ICMP sockets run in parallel, each socket may receive ICMP
+  responses intended for other sockets. This module filters responses by
+  matching the ICMP identifier in the response against the identifier used
+  in the original request.
   """
 
   defstruct [
@@ -14,10 +21,12 @@ defmodule Traceroute.Sockets.ICMP do
     :socket,
     :caller,
     :start_time,
-    :timer_ref
+    :timer_ref,
+    :identifier
   ]
 
   alias __MODULE__
+  alias Traceroute.Utils
 
   use GenServer
 
@@ -29,9 +38,12 @@ defmodule Traceroute.Sockets.ICMP do
   Sends an ICMP probe packet and waits for a response.
 
   Returns `{:ok, time_microseconds, reply_packet}` on success, or `{:error, reason}` on failure.
+
+  ## Options
+    - `:identifier` - The ICMP identifier used in the probe packet (required for response filtering)
   """
-  def send(packet, ip, ttl, timeout) do
-    {:ok, pid} = start_link(packet: packet, ip: ip, ttl: ttl, timeout: timeout)
+  def send(packet, ip, ttl, timeout, opts \\ []) do
+    {:ok, pid} = start_link(packet: packet, ip: ip, ttl: ttl, timeout: timeout, opts: opts)
     GenServer.call(pid, :send_probe, :infinity)
   end
 
@@ -43,6 +55,8 @@ defmodule Traceroute.Sockets.ICMP do
 
   @impl GenServer
   def init(args) do
+    opts = Keyword.get(args, :opts, [])
+
     state = %ICMP{
       packet: Keyword.fetch!(args, :packet),
       ip: Keyword.fetch!(args, :ip),
@@ -51,7 +65,8 @@ defmodule Traceroute.Sockets.ICMP do
       socket: nil,
       caller: nil,
       start_time: nil,
-      timer_ref: nil
+      timer_ref: nil,
+      identifier: Keyword.fetch!(opts, :identifier)
     }
 
     {:ok, state}
@@ -59,7 +74,7 @@ defmodule Traceroute.Sockets.ICMP do
 
   @impl GenServer
   def handle_call(:send_probe, from, state) do
-    Logger.debug("Sending ICMP probe to #{:inet.ntoa(state.ip)}")
+    Logger.debug("Sending ICMP probe to #{:inet.ntoa(state.ip)} with ID #{state.identifier}")
 
     with {:ok, socket} <- :socket.open(:inet, :dgram, :icmp),
          :ok <- :socket.setopt(socket, {:ip, :ttl}, state.ttl) do
@@ -113,8 +128,13 @@ defmodule Traceroute.Sockets.ICMP do
   defp receive_icmp(state) do
     case :socket.recvfrom(state.socket, 0, :nowait) do
       {:ok, {_source, reply_packet}} ->
-        Logger.debug("Received ICMP response.")
-        reply_and_stop({:ok, elapsed(state), reply_packet}, state)
+        if Utils.icmp_response_matches?(reply_packet, state.identifier) do
+          Logger.debug("Received matching ICMP response.")
+          reply_and_stop({:ok, elapsed(state), reply_packet}, state)
+        else
+          Logger.debug("Ignoring ICMP response with non-matching identifier.")
+          {:noreply, state}
+        end
 
       {:select, _select_info} ->
         {:noreply, state}
