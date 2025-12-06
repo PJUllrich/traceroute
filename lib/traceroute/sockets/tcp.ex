@@ -21,9 +21,9 @@ defmodule Traceroute.Sockets.TCP do
 
   use GenServer
 
-  require Logger
-
   alias Traceroute.Utils
+
+  require Logger
 
   @default_dest_port 80
 

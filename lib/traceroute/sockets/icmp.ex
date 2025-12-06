@@ -13,6 +13,13 @@ defmodule Traceroute.Sockets.ICMP do
   in the original request.
   """
 
+  use GenServer
+
+  alias __MODULE__
+  alias Traceroute.Utils
+
+  require Logger
+
   defstruct [
     :packet,
     :ip,
@@ -24,13 +31,6 @@ defmodule Traceroute.Sockets.ICMP do
     :timer_ref,
     :identifier
   ]
-
-  alias __MODULE__
-  alias Traceroute.Utils
-
-  use GenServer
-
-  require Logger
 
   # Client API
 
@@ -78,7 +78,7 @@ defmodule Traceroute.Sockets.ICMP do
 
     with {:ok, socket} <- :socket.open(:inet, :dgram, :icmp),
          :ok <- :socket.setopt(socket, {:ip, :ttl}, state.ttl) do
-      state = %ICMP{state | socket: socket, caller: from}
+      state = %{state | socket: socket, caller: from}
       start_probe(state)
     else
       {:error, reason} ->
@@ -113,7 +113,7 @@ defmodule Traceroute.Sockets.ICMP do
     dest_addr = %{family: :inet, addr: state.ip}
     timeout = to_timeout(second: state.timeout)
     start_time = now()
-    state = %ICMP{state | start_time: start_time}
+    state = %{state | start_time: start_time}
 
     case :socket.sendto(state.socket, state.packet, dest_addr) do
       :ok ->

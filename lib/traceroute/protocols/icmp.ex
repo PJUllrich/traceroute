@@ -7,9 +7,15 @@ defmodule Traceroute.Protocols.ICMP do
 
   import Bitwise
 
-  alias __MODULE__.{DestinationUnreachable, EchoReply, RequestDatagram, TimeExceeded, Unparsed}
-  alias Traceroute.Protocols.TCP, as: TCPProtocol
-  alias Traceroute.Protocols.UDP, as: UDPProtocol
+  alias Traceroute.Protocols
+
+  alias Traceroute.Protocols.ICMP.{
+    DestinationUnreachable,
+    EchoReply,
+    RequestDatagram,
+    TimeExceeded,
+    Unparsed
+  }
 
   defstruct [
     :type,
@@ -102,8 +108,8 @@ defmodule Traceroute.Protocols.ICMP do
     parsed_data =
       case protocol do
         :icmp -> RequestDatagram.parse(data)
-        :udp -> UDPProtocol.parse_datagram(data)
-        :tcp -> TCPProtocol.parse_header(data)
+        :udp -> Protocols.UDP.parse_datagram(data)
+        :tcp -> Protocols.TCP.parse_header(data)
         _ -> data
       end
 
@@ -121,8 +127,8 @@ defmodule Traceroute.Protocols.ICMP do
     parsed_data =
       case protocol do
         :icmp -> RequestDatagram.parse(data)
-        :udp -> UDPProtocol.parse_datagram(data)
-        :tcp -> TCPProtocol.parse_header(data)
+        :udp -> Protocols.UDP.parse_datagram(data)
+        :tcp -> Protocols.TCP.parse_header(data)
         _ -> data
       end
 

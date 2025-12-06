@@ -56,28 +56,4 @@ defmodule Traceroute.Result.DestinationReached do
   def source_addr(%__MODULE__{probes: [probe | _]}) do
     probe.source_addr
   end
-
-  @doc """
-  Returns the source domain from the first probe, or nil if no probes.
-  """
-  @spec source_domain(t()) :: String.t() | charlist() | nil
-  def source_domain(%__MODULE__{probes: []}) do
-    nil
-  end
-
-  def source_domain(%__MODULE__{probes: [probe | _]}) do
-    probe.source_domain
-  end
-
-  @doc """
-  Returns the round-trip time in milliseconds for the first probe.
-  """
-  @spec time_ms(t()) :: float() | nil
-  def time_ms(%__MODULE__{probes: []}) do
-    nil
-  end
-
-  def time_ms(%__MODULE__{probes: [probe | _]}) do
-    Probe.time_ms(probe)
-  end
 end

@@ -51,16 +51,4 @@ defmodule Traceroute.Result.Hop do
   def source_addr(%__MODULE__{probes: [probe | _]}) do
     probe.source_addr
   end
-
-  @doc """
-  Returns the source domain from the first probe, or nil if no probes.
-  """
-  @spec source_domain(t()) :: String.t() | charlist() | nil
-  def source_domain(%__MODULE__{probes: []}) do
-    nil
-  end
-
-  def source_domain(%__MODULE__{probes: [probe | _]}) do
-    probe.source_domain
-  end
 end

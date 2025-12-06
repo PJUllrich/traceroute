@@ -41,7 +41,7 @@ defmodule Traceroute.Ping do
     # Echo Request
     type = 8
     code = 0
-    id = :rand.uniform(65535)
+    id = :rand.uniform(65_535)
     sequence = 1
     payload = "ping"
 

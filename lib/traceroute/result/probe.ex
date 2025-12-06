@@ -11,15 +11,17 @@ defmodule Traceroute.Result.Probe do
     * `:time` - Round-trip time in microseconds
     * `:source_addr` - IP address of the responding router as a tuple
     * `:source_domain` - Hostname of the responding router (or IP string if DNS lookup fails)
-    * `:icmp` - The parsed ICMP response struct
+    * `:reply` - The parsed ICMP response struct
   """
+
+  alias Traceroute.Protocols.ICMP
 
   defstruct [
     :ttl,
     :time,
     :source_addr,
     :source_domain,
-    :icmp
+    :reply
   ]
 
   @type t :: %__MODULE__{
@@ -27,20 +29,20 @@ defmodule Traceroute.Result.Probe do
           time: non_neg_integer(),
           source_addr: :inet.ip4_address(),
           source_domain: String.t() | charlist(),
-          icmp: Traceroute.Protocols.ICMP.t()
+          reply: ICMP.t()
         }
 
   @doc """
   Creates a new Probe from the TTL, response time, IPv4 header, and ICMP data.
   """
-  @spec new(pos_integer(), non_neg_integer(), map(), Traceroute.Protocols.ICMP.t()) :: t()
+  @spec new(pos_integer(), non_neg_integer(), map(), ICMP.t()) :: t()
   def new(ttl, time, ipv4_header, icmp) do
     %__MODULE__{
       ttl: ttl,
       time: time,
       source_addr: ipv4_header.source_addr,
       source_domain: ipv4_header.source_domain,
-      icmp: icmp
+      reply: icmp
     }
   end
 

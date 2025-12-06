@@ -20,6 +20,13 @@ defmodule Traceroute.Sockets.UDP do
   port used by this socket.
   """
 
+  use GenServer
+
+  alias __MODULE__
+  alias Traceroute.Utils
+
+  require Logger
+
   defstruct [
     :packet,
     :ip,
@@ -33,13 +40,6 @@ defmodule Traceroute.Sockets.UDP do
     :start_time,
     :timer_ref
   ]
-
-  use GenServer
-
-  require Logger
-
-  alias __MODULE__
-  alias Traceroute.Utils
 
   @default_dest_port 33_434
 
@@ -95,7 +95,7 @@ defmodule Traceroute.Sockets.UDP do
          :ok <- :socket.bind(udp_socket, %{family: :inet, addr: {0, 0, 0, 0}, port: 0}),
          {:ok, %{port: source_port}} <- :socket.sockname(udp_socket),
          {:ok, icmp_socket} <- :socket.open(:inet, :dgram, :icmp) do
-      state = %UDP{
+      state = %{
         state
         | udp_socket: udp_socket,
           icmp_socket: icmp_socket,
@@ -138,7 +138,7 @@ defmodule Traceroute.Sockets.UDP do
     dest_addr = %{family: :inet, addr: state.ip, port: state.dest_port}
     timeout = to_timeout(second: state.timeout)
     start_time = now()
-    state = %UDP{state | start_time: start_time}
+    state = %{state | start_time: start_time}
 
     case :socket.sendto(state.udp_socket, state.packet, dest_addr) do
       :ok ->

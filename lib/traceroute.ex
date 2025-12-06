@@ -3,12 +3,12 @@ defmodule Traceroute do
   Performs a traceroute request to a given domain.
   """
 
-  require Logger
-
   alias Traceroute.Ping
   alias Traceroute.Result
   alias Traceroute.Result.{DestinationReached, Error, Hop, Probe, Timeout}
   alias Traceroute.Utils
+
+  require Logger
 
   @doc """
   Run a traceroute on a given domain.
@@ -171,11 +171,10 @@ defmodule Traceroute do
     grouped =
       hop.probes
       |> Enum.group_by(fn probe -> {probe.source_addr, probe.source_domain} end)
-      |> Enum.map(fn {{addr, domain}, probes} ->
-        times = probes |> Enum.map(&Probe.time_ms/1) |> Enum.map(&"#{&1}ms") |> Enum.join("  ")
+      |> Enum.map_join("\n   ", fn {{addr, domain}, probes} ->
+        times = probes |> Enum.map(&Probe.time_ms/1) |> Enum.map_join("  ", &"#{&1}ms")
         "#{domain} (#{format_addr(addr)}) #{times}"
       end)
-      |> Enum.join("\n   ")
 
     IO.write("\r#{hop.ttl}  #{grouped}\n")
   end
@@ -185,19 +184,17 @@ defmodule Traceroute do
     grouped =
       dest.probes
       |> Enum.group_by(fn probe -> {probe.source_addr, probe.source_domain} end)
-      |> Enum.map(fn {{addr, domain}, probes} ->
+      |> Enum.map_join("\n   ", fn {{addr, domain}, probes} ->
         times =
           probes
           |> Enum.map(&Probe.time_ms/1)
-          |> Enum.map(&"#{&1}ms")
-          |> Enum.join("  ")
+          |> Enum.map_join("  ", &"#{&1}ms")
 
         case domain do
           nil -> "#{format_addr(addr)} #{times}"
           domain -> "#{domain} (#{format_addr(addr)}) #{times}"
         end
       end)
-      |> Enum.join("\n   ")
 
     IO.write("\r#{dest.ttl}  #{grouped}\n")
   end

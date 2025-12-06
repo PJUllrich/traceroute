@@ -14,7 +14,7 @@ defmodule Traceroute.Utils do
   @doc "Returns the domain for a given IP."
   def get_domain(ip) when is_tuple(ip) do
     with {:ok, {:hostent, domain, [], :inet, _version, _ip}} <- :inet_res.gethostbyaddr(ip) do
-      {:ok, List.to_string(domain)}
+      {:ok, domain}
     end
   end
 
