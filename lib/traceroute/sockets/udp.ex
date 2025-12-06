@@ -30,12 +30,14 @@ defmodule Traceroute.Sockets.UDP do
   defstruct [
     :packet,
     :ip,
+    :ip_protocol,
     :ttl,
     :timeout,
     :dest_port,
     :source_port,
     :udp_socket,
     :icmp_socket,
+    :socket_domain,
     :caller,
     :start_time,
     :timer_ref
@@ -53,8 +55,9 @@ defmodule Traceroute.Sockets.UDP do
   ## Options
     - `:dest_port` - The destination port (default: 33434)
   """
-  def send(packet, ip, ttl, timeout, opts \\ []) do
-    {:ok, pid} = start_link(packet: packet, ip: ip, ttl: ttl, timeout: timeout, opts: opts)
+  def send(packet, ip, ttl, timeout, ip_protocol, opts \\ []) do
+    args = [packet: packet, ip: ip, ttl: ttl, timeout: timeout, ip_protocol: ip_protocol] ++ opts
+    {:ok, pid} = start_link(args)
     GenServer.call(pid, :send_probe, :infinity)
   end
 
@@ -66,17 +69,17 @@ defmodule Traceroute.Sockets.UDP do
 
   @impl GenServer
   def init(args) do
-    opts = Keyword.get(args, :opts, [])
-
     state = %UDP{
       packet: Keyword.fetch!(args, :packet),
       ip: Keyword.fetch!(args, :ip),
+      ip_protocol: Keyword.fetch!(args, :ip_protocol),
       ttl: Keyword.fetch!(args, :ttl),
       timeout: Keyword.fetch!(args, :timeout),
-      dest_port: Keyword.get(opts, :dest_port, @default_dest_port),
+      dest_port: Keyword.get(args, :dest_port, @default_dest_port),
       source_port: nil,
       udp_socket: nil,
       icmp_socket: nil,
+      socket_domain: nil,
       caller: nil,
       start_time: nil,
       timer_ref: nil
@@ -88,17 +91,20 @@ defmodule Traceroute.Sockets.UDP do
   @impl GenServer
   def handle_call(:send_probe, from, state) do
     Logger.debug("Sending UDP probe to #{:inet.ntoa(state.ip)}")
+    %{domain: domain, protocol: protocol, ttl_opt: ttl_opt} = Utils.get_protocol_options(state.ip_protocol, :udp)
+    %{protocol: icmp_protocol} = Utils.get_protocol_options(state.ip_protocol, :icmp)
 
-    with {:ok, udp_socket} <- :socket.open(:inet, :dgram, :udp),
-         :ok <- :socket.setopt(udp_socket, {:ip, :ttl}, state.ttl),
+    with {:ok, udp_socket} <- :socket.open(domain, :dgram, protocol),
+         :ok <- :socket.setopt(udp_socket, ttl_opt, state.ttl),
          # Bind to port 0 to let the OS assign an ephemeral port
-         :ok <- :socket.bind(udp_socket, %{family: :inet, addr: {0, 0, 0, 0}, port: 0}),
+         :ok <- :socket.bind(udp_socket, %{family: domain, addr: Utils.any_addr(domain), port: 0}),
          {:ok, %{port: source_port}} <- :socket.sockname(udp_socket),
-         {:ok, icmp_socket} <- :socket.open(:inet, :dgram, :icmp) do
+         {:ok, icmp_socket} <- :socket.open(domain, :dgram, icmp_protocol) do
       state = %{
         state
         | udp_socket: udp_socket,
           icmp_socket: icmp_socket,
+          socket_domain: domain,
           caller: from,
           source_port: source_port
       }
@@ -135,7 +141,7 @@ defmodule Traceroute.Sockets.UDP do
   # Private Functions
 
   defp start_probe(state) do
-    dest_addr = %{family: :inet, addr: state.ip, port: state.dest_port}
+    dest_addr = %{family: state.socket_domain, addr: state.ip, port: state.dest_port}
     timeout = to_timeout(second: state.timeout)
     start_time = now()
     state = %{state | start_time: start_time}
@@ -152,10 +158,10 @@ defmodule Traceroute.Sockets.UDP do
 
   defp receive_icmp(state) do
     case :socket.recvfrom(state.icmp_socket, 0, :nowait) do
-      {:ok, {_source, reply_packet}} ->
-        if Utils.icmp_response_matches?(reply_packet, state.source_port) do
+      {:ok, {source, reply_packet}} ->
+        if Utils.icmp_response_matches?(state.ip_protocol, reply_packet, state.source_port) do
           Logger.debug("Received matching ICMP response.")
-          reply_and_stop({:ok, elapsed(state), reply_packet}, state)
+          reply_and_stop({:ok, elapsed(state), {reply_packet, source}}, state)
         else
           Logger.debug("Ignoring ICMP response with non-matching source port.")
           {:noreply, state}

@@ -1,8 +1,9 @@
 defmodule Traceroute.Protocols.ICMP do
   @moduledoc """
-  Implements the encoding and decoding of ICMP packets.
+  Implements the encoding and decoding of ICMP and ICMPv6 packets.
 
   See: https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol
+  See: https://en.wikipedia.org/wiki/ICMPv6
   """
 
   import Bitwise
@@ -76,11 +77,15 @@ defmodule Traceroute.Protocols.ICMP do
     >>
   end
 
-  @spec decode_datagram(binary()) :: t()
-  def decode_datagram(payload) do
+  @doc """
+  Decodes an IPv4 or IPv6 ICMP datagram and its reply packet.
+  """
+  @spec decode_datagram(binary(), atom()) :: t()
+  def decode_datagram(payload, ip_protocol) do
     <<type::8, code::8, checksum::16, rest::binary>> = payload
 
-    reply = parse_reply(type, code, rest)
+    type = if ip_protocol == :ipv4, do: type, else: normalize_icmpv6_type(type)
+    reply = parse_reply(type, code, ip_protocol, rest)
 
     %__MODULE__{
       type: type,
@@ -90,9 +95,26 @@ defmodule Traceroute.Protocols.ICMP do
     }
   end
 
+  # ICMPv6 type numbers (different from IPv4 ICMP)
+  # https://en.wikipedia.org/wiki/ICMPv6#Types
+  #
+  # Maps ICMPv6 types to their IPv4 ICMP equivalents where applicable.
+  #
+  # ICMP message types with IPv4 equivalents
+  # Echo Reply -> 0
+  defp normalize_icmpv6_type(129), do: 0
+  # Destination Unreachable -> 3
+  defp normalize_icmpv6_type(1), do: 3
+  # Packet Too Big -> Destination Unreachable (fragmentation needed)
+  defp normalize_icmpv6_type(2), do: 3
+  # Time Exceeded -> 11
+  defp normalize_icmpv6_type(3), do: 11
+  # Other ICMP message types that we don't parse (but might still receive)
+  defp normalize_icmpv6_type(type), do: type
+
   # Echo Reply (Type 0, Code 0)
   # The 4 bytes after checksum are: identifier (16 bits) + sequence (16 bits)
-  defp parse_reply(0, 0, <<identifier::16, sequence::16, data::binary>>) do
+  defp parse_reply(0, 0, _ip_protocol, <<identifier::16, sequence::16, data::binary>>) do
     %EchoReply{
       identifier: identifier,
       sequence: sequence,
@@ -102,8 +124,8 @@ defmodule Traceroute.Protocols.ICMP do
 
   # Time Exceeded (Type 11)
   # The 4 bytes after checksum are: unused (32 bits), then the original IP header + data
-  defp parse_reply(11, _code, <<_unused::32, payload::binary>>) do
-    {protocol, data} = extract_original_packet(payload)
+  defp parse_reply(11, _code, ip_protocol, <<_unused::32, payload::binary>>) do
+    {protocol, data} = extract_original_packet(ip_protocol, payload)
 
     parsed_data =
       case protocol do
@@ -119,10 +141,17 @@ defmodule Traceroute.Protocols.ICMP do
     }
   end
 
-  # Destination Unreachable - Port Unreachable (Type 3, Code 3)
+  # Destination Unreachable (Type 3, all codes)
+  # Common codes:
+  #   0 - Network Unreachable
+  #   1 - Host Unreachable
+  #   3 - Port Unreachable
+  #   4 - Fragmentation Needed and DF was Set (Path MTU Discovery)
+  #   13 - Communication Administratively Prohibited
   # The 4 bytes after checksum are: unused (16 bits) + next-hop MTU (16 bits), then original packet
-  defp parse_reply(3, 3, <<_unused::16, _next_hop_mtu::16, payload::binary>>) do
-    {protocol, data} = extract_original_packet(payload)
+  # Note: next-hop MTU is only meaningful for code 4, but the format is the same for all codes
+  defp parse_reply(3, _code, ip_protocol, <<_unused::16, _next_hop_mtu::16, payload::binary>>) do
+    {protocol, data} = extract_original_packet(ip_protocol, payload)
 
     parsed_data =
       case protocol do
@@ -138,18 +167,14 @@ defmodule Traceroute.Protocols.ICMP do
     }
   end
 
-  # Fallback for unhandled ICMP types
-  defp parse_reply(type, code, payload) do
-    %Unparsed{
-      type: type,
-      code: code,
-      payload: payload
-    }
+  # Fallback for unhandled ICMP types - return as Unparsed instead of crashing
+  defp parse_reply(type, code, _ip_protocol, payload) do
+    %Unparsed{type: type, code: code, payload: payload}
   end
 
   # Extracts the original packet from an ICMP error response.
   # Returns the protocol and the data portion after the IPv4 header.
-  defp extract_original_packet(payload) do
+  defp extract_original_packet(:ipv4, payload) do
     <<_ihl_version::4, ihl::4, rest::binary>> = payload
     <<ipv4_header::binary-size(ihl * 4 - 1), data::binary>> = rest
     <<_::binary-size(8), protocol_num::8, _rest::binary>> = ipv4_header
@@ -159,11 +184,36 @@ defmodule Traceroute.Protocols.ICMP do
     {protocol, data}
   end
 
+  # Extracts the original packet from an ICMPv6 error response.
+  # Returns the protocol and the data portion after the IPv6 header.
+  # IPv6 header is always 40 bytes (no variable IHL like IPv4).
+  defp extract_original_packet(:ipv6, payload) do
+    case payload do
+      <<
+        _version_traffic_flow::32,
+        _payload_length::16,
+        next_header::8,
+        _hop_limit::8,
+        _source_addr::128,
+        _dest_addr::128,
+        data::binary
+      >> ->
+        protocol = parse_protocol(next_header)
+        {protocol, data}
+
+      # If we can't parse the full IPv6 header, return what we have
+      _ ->
+        {:unknown, payload}
+    end
+  end
+
   # Maps IPv4 protocol numbers to atoms
   # https://en.wikipedia.org/wiki/IPv4#Protocol
+  # https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers
   defp parse_protocol(1), do: :icmp
   defp parse_protocol(6), do: :tcp
   defp parse_protocol(17), do: :udp
+  defp parse_protocol(58), do: :icmp
   defp parse_protocol(n), do: n
 
   @spec checksum(binary()) :: binary()

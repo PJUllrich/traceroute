@@ -21,11 +21,27 @@ defmodule Traceroute.Sockets.TCP do
 
   use GenServer
 
+  alias __MODULE__
   alias Traceroute.Utils
 
   require Logger
 
   @default_dest_port 80
+
+  defstruct [
+    :ip,
+    :ip_protocol,
+    :ttl,
+    :timeout,
+    :dest_port,
+    :source_port,
+    :tcp_socket,
+    :icmp_socket,
+    :socket_domain,
+    :caller,
+    :start_time,
+    :timer_ref
+  ]
 
   # Client API
 
@@ -37,8 +53,9 @@ defmodule Traceroute.Sockets.TCP do
   ## Options
     - `:dest_port` - The destination port (default: 80)
   """
-  def send(ip, ttl, timeout, opts \\ []) do
-    {:ok, pid} = start_link(ip: ip, ttl: ttl, timeout: timeout, opts: opts)
+  def send(ip, ttl, timeout, ip_protocol, opts \\ []) do
+    args = [ip: ip, ttl: ttl, timeout: timeout, ip_protocol: ip_protocol] ++ opts
+    {:ok, pid} = start_link(args)
     GenServer.call(pid, :send_probe, :infinity)
   end
 
@@ -50,14 +67,16 @@ defmodule Traceroute.Sockets.TCP do
 
   @impl GenServer
   def init(args) do
-    state = %{
+    state = %TCP{
       ip: Keyword.fetch!(args, :ip),
+      ip_protocol: Keyword.fetch!(args, :ip_protocol),
       ttl: Keyword.fetch!(args, :ttl),
       timeout: Keyword.fetch!(args, :timeout),
-      dest_port: Keyword.get(args, :opts, []) |> Keyword.get(:dest_port, @default_dest_port),
+      dest_port: Keyword.get(args, :dest_port, @default_dest_port),
       source_port: nil,
       tcp_socket: nil,
       icmp_socket: nil,
+      socket_domain: nil,
       caller: nil,
       start_time: nil,
       timer_ref: nil
@@ -69,17 +88,20 @@ defmodule Traceroute.Sockets.TCP do
   @impl GenServer
   def handle_call(:send_probe, from, state) do
     Logger.debug("Sending TCP probe to #{:inet.ntoa(state.ip)}")
+    %{domain: domain, protocol: protocol, ttl_opt: ttl_opt} = Utils.get_protocol_options(state.ip_protocol, :tcp)
+    %{protocol: icmp_protocol} = Utils.get_protocol_options(state.ip_protocol, :icmp)
 
-    with {:ok, tcp_socket} <- :socket.open(:inet, :stream, :tcp),
-         :ok <- :socket.setopt(tcp_socket, {:ip, :ttl}, state.ttl),
+    with {:ok, tcp_socket} <- :socket.open(domain, :stream, protocol),
+         :ok <- :socket.setopt(tcp_socket, ttl_opt, state.ttl),
          # Bind to port 0 to let the OS assign an ephemeral port
-         :ok <- :socket.bind(tcp_socket, %{family: :inet, addr: {0, 0, 0, 0}, port: 0}),
+         :ok <- :socket.bind(tcp_socket, %{family: domain, addr: Utils.any_addr(domain), port: 0}),
          {:ok, %{port: source_port}} <- :socket.sockname(tcp_socket),
-         {:ok, icmp_socket} <- :socket.open(:inet, :dgram, :icmp) do
+         {:ok, icmp_socket} <- :socket.open(domain, :dgram, icmp_protocol) do
       state = %{
         state
         | tcp_socket: tcp_socket,
           icmp_socket: icmp_socket,
+          socket_domain: domain,
           caller: from,
           source_port: source_port
       }
@@ -120,7 +142,7 @@ defmodule Traceroute.Sockets.TCP do
   # Private Functions
 
   defp start_probe(state) do
-    dest_addr = %{family: :inet, addr: state.ip, port: state.dest_port}
+    dest_addr = %{family: state.socket_domain, addr: state.ip, port: state.dest_port}
     start_time = now()
     state = %{state | start_time: start_time}
 
@@ -160,10 +182,10 @@ defmodule Traceroute.Sockets.TCP do
 
   defp receive_icmp(state) do
     case :socket.recvfrom(state.icmp_socket, 0, :nowait) do
-      {:ok, {_source, reply_packet}} ->
-        if Utils.icmp_response_matches?(reply_packet, state.source_port) do
+      {:ok, {source, reply_packet}} ->
+        if Utils.icmp_response_matches?(state.ip_protocol, reply_packet, state.source_port) do
           Logger.debug("Received matching ICMP response.")
-          reply_and_stop({:ok, elapsed(state), reply_packet}, state)
+          reply_and_stop({:ok, elapsed(state), {reply_packet, source}}, state)
         else
           Logger.debug("Ignoring ICMP response with non-matching source port.")
           {:noreply, state}

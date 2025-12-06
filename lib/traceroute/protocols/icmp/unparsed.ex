@@ -9,8 +9,8 @@ defmodule Traceroute.Protocols.ICMP.Unparsed do
   defstruct [:type, :code, :payload]
 
   @type t :: %__MODULE__{
-          type: non_neg_integer(),
-          code: non_neg_integer(),
+          type: non_neg_integer() | nil,
+          code: non_neg_integer() | nil,
           payload: binary()
         }
 end

@@ -3,6 +3,7 @@ defmodule Traceroute.Protocols.IPv4 do
   Implements decoding IPv4 Headers.
   """
 
+  alias Traceroute.Protocols.IPv4.Header
   alias Traceroute.Utils
 
   @doc """
@@ -38,7 +39,8 @@ defmodule Traceroute.Protocols.IPv4 do
 
     <<
       # Line 1
-      ihl_version::4,
+      # IPv4 Headers always start with the version 6
+      4::4,
       ihl::4,
       tos::8,
       total_length::16,
@@ -67,9 +69,8 @@ defmodule Traceroute.Protocols.IPv4 do
 
     destination_addr = Utils.ipv4_tuple(destination_addr)
 
-    header = %{
-      type: :ipv4,
-      ihl_version: ihl_version,
+    header = %Header{
+      ihl_version: 4,
       ihl: ihl,
       tos: tos,
       total_length: total_length,

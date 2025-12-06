@@ -13,33 +13,34 @@ defmodule Traceroute do
   @doc """
   Run a traceroute on a given domain.
 
-  ## Options
-    * `protocol: :icmp|:udp|:tcp` (default `:icmp`). Which protocol to use for sending the pings.
-    * `max_hops: 20` (default: 20). After how many hops traceroute should abort.
-    * `max_retries: 3` (default: 3). How often to retry each hop before moving to the next hop.
+  ## (Default) Options
+    * `protocol: :icmp|:udp|:tcp` (default `:udp`). Which protocol to use for sending the pings.
+    * `max_hops: 20`. After how many hops traceroute should abort.
+    * `max_retries: 3`. How often to retry each hop before moving to the next hop.
     * `timeout: 1`. How long to wait for a response in seconds.
-    * `print_output: true|false`. Whether to print the output to STDOUT or not.
-    * `probes: 1` (default: 1). Number of probes to send in parallel for each TTL.
+    * `print_output: true`. Whether to print the output to STDOUT or not.
+    * `probes: 3`. Number of probes to send in parallel for each TTL.
 
   ## Returns
     * `{:ok, trace}` if destination is reached, where trace is a list of `Result.t()`.
     * `{:error, :max_hops_exceeded, trace}` if max hops are exceeded.
   """
-  @spec run(String.t(), keyword()) ::
+  @spec run(String.t() | Tuple.t(), keyword()) ::
           {:ok, Result.trace()} | {:error, :max_hops_exceeded, Result.trace()}
-  def run(domain, opts \\ []) when is_binary(domain) do
+  def run(domain_or_ip, opts \\ []) do
     default_opts = [
-      protocol: :icmp,
+      protocol: :udp,
+      ip_protocol: :ipv4,
       max_hops: 20,
       max_retries: 3,
       timeout: 1,
       print_output: true,
-      probes: 1
+      probes: 3
     ]
 
     opts = default_opts |> Keyword.merge(opts) |> Map.new()
 
-    ip = Utils.get_ip(domain)
+    ip = Utils.get_ip(opts.ip_protocol, domain_or_ip)
 
     do_run(ip, 1, opts.max_hops, opts.max_retries, [], opts)
   end
@@ -80,7 +81,7 @@ defmodule Traceroute do
       fn probe_num ->
         # Stagger probe sends to avoid ICMP rate limiting on routers
         if probe_num > 1, do: Process.sleep((probe_num - 1) * @probe_delay_ms)
-        Ping.run(ip, ttl: ttl, timeout: opts.timeout, protocol: opts.protocol)
+        Ping.run(ip, ttl: ttl, timeout: opts.timeout, protocol: opts.protocol, ip_protocol: opts.ip_protocol)
       end,
       timeout: (opts.timeout + 1) * 1000 + opts.probes * @probe_delay_ms,
       on_timeout: :kill_task
