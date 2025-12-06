@@ -22,7 +22,7 @@ iex> Traceroute.run("google.com", protocol: :udp, ip_protocol: :ipv4, probes: 3)
 For comparison, here's the output from `traceroute`:
 
 ```bash
-# traceroute -P udp -w 1 google.com
+$ traceroute -P udp -w 1 google.com
 traceroute to google.com (142.251.140.174), 64 hops max, 40 byte packets
  1  --redacted-- (--redacted--)  3.647 ms  3.184 ms  2.751 ms
  2  192.0.0.1 (192.0.0.1)  8.222 ms  8.685 ms  8.126 ms
@@ -55,6 +55,12 @@ traceroute to google.com (142.251.140.174), 64 hops max, 40 byte packets
 - `timeout` - Response timeout in seconds (default: `1`)
 - `probes` - Number of parallel probes per TTL (default: `3`)
 - `print_output` - Toggle console output (default: `true`)
+
+## Caveats and Considerations
+
+- This library is untested on Windows. Please report any issues for investigation.
+- You may need to run as `sudo` depending on your OS, though try without it first. IPv6 ICMP probes on macOS definitely require sudo. If you get `:eperm` errors, use `sudo`.
+- Running many parallel probes can cause performance issues since each ICMP socket receives (but filters) all ICMP replies. Contact me if this affects you. I have a potential fix which is not yet implemented.
 
 ## Useful `traceroute` commands to run comparisons
 
