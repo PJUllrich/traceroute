@@ -8,21 +8,37 @@ defmodule Traceroute.Utils do
 
   require Logger
 
+  @doc """
+  Returns `{:ok, ip_protocol}` with `ip_protocol = :ipv4|:ipv6` for an IP tuple
+  or `{:error, :invalid_ip_address}` if the IP tuple is invalid.
+  """
+  def get_ip_protocol(ip) when is_tuple(ip) do
+    cond do
+      :inet.is_ip_address(ip) == false -> {:error, :invalid_ip_address}
+      :inet.is_ipv4_address(ip) -> {:ok, :ipv4}
+      :inet.is_ipv6_address(ip) -> {:ok, :ipv6}
+    end
+  end
+
   @doc "Returns the IPv4 or IPv6 address as Tuple for a given IP Protocol and Domain."
-  def get_ip(_ip_protocol, ip) when is_tuple(ip), do: ip
+  def get_ip(_ip_protocol, ip) when is_tuple(ip), do: {:ok, ip}
   def get_ip(:ipv4, domain) when is_binary(domain), do: get_ipv4(domain)
   def get_ip(:ipv6, domain) when is_binary(domain), do: get_ipv6(domain)
 
   @doc "Returns the IPv4 as Tuple for a given Domain."
   def get_ipv4(domain) when is_binary(domain) do
-    {:ok, {:hostent, _, _, :inet, 4, [ip | _]}} = :inet.gethostbyname(String.to_charlist(domain), :inet)
-    ip
+    case :inet.gethostbyname(String.to_charlist(domain), :inet) do
+      {:ok, {:hostent, _, _, :inet, 4, [ip | _]}} -> {:ok, ip}
+      {:error, _reason} = error -> error
+    end
   end
 
   @doc "Returns the IPv6 as Tuple for a given Domain."
   def get_ipv6(domain) when is_binary(domain) do
-    {:ok, {:hostent, _, _, :inet6, 16, [ip | _]}} = :inet.gethostbyname(String.to_charlist(domain), :inet6)
-    ip
+    case :inet.gethostbyname(String.to_charlist(domain), :inet6) do
+      {:ok, {:hostent, _, _, :inet6, 16, [ip | _]}} -> {:ok, ip}
+      {:error, _reason} = error -> error
+    end
   end
 
   @doc "Returns the domain for a given IP."

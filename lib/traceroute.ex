@@ -19,13 +19,14 @@ defmodule Traceroute do
     * `max_retries: 3`. How often to retry each hop before moving to the next hop.
     * `timeout: 1`. How long to wait for a response in seconds.
     * `print_output: true`. Whether to print the output to STDOUT or not.
+    * `ip_protocol: :ipv4|:ipv6`. Whether to trace a domain over IPv4 or IPv6. Ignored if an IP-tuple is provided.
     * `probes: 3`. Number of probes to send in parallel for each TTL.
 
   ## Returns
     * `{:ok, trace}` if destination is reached, where trace is a list of `Result.t()`.
     * `{:error, :max_hops_exceeded, trace}` if max hops are exceeded.
   """
-  @spec run(String.t() | Tuple.t(), keyword()) ::
+  @spec run(String.t() | tuple(), keyword()) ::
           {:ok, Result.trace()} | {:error, :max_hops_exceeded, Result.trace()}
   def run(domain_or_ip, opts \\ []) do
     default_opts = [
@@ -40,9 +41,12 @@ defmodule Traceroute do
 
     opts = default_opts |> Keyword.merge(opts) |> Map.new()
 
-    ip = Utils.get_ip(opts.ip_protocol, domain_or_ip)
+    with {:ok, ip} <- Utils.get_ip(opts.ip_protocol, domain_or_ip),
+         {:ok, ip_protocol} <- Utils.get_ip_protocol(ip) do
+      opts = Map.put(opts, :ip_protocol, ip_protocol)
 
-    do_run(ip, 1, opts.max_hops, opts.max_retries, [], opts)
+      do_run(ip, 1, opts.max_hops, opts.max_retries, [], opts)
+    end
   end
 
   defp do_run(_ip, _ttl, 0 = _max_hops, _retries, trace, _opts) do

@@ -1,7 +1,7 @@
 defmodule Traceroute.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.1.1"
   @source_url "https://github.com/PJUllrich/traceroute"
 
   def project do
@@ -25,6 +25,7 @@ defmodule Traceroute.MixProject do
 
   defp deps do
     [
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:quokka, "~> 2.11", only: [:dev, :test], runtime: false}
     ]

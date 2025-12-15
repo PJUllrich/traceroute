@@ -27,9 +27,12 @@ defmodule Traceroute.Ping do
     ]
 
     opts = default_opts |> Keyword.merge(opts) |> Map.new()
-    ip = Utils.get_ip(opts.ip_protocol, domain_or_ip)
 
-    do_run(opts.protocol, ip, opts)
+    with {:ok, ip} <- Utils.get_ip(opts.ip_protocol, domain_or_ip),
+         {:ok, ip_protocol} <- Utils.get_ip_protocol(ip) do
+      opts = Map.put(opts, :ip_protocol, ip_protocol)
+      do_run(opts.protocol, ip, opts)
+    end
   end
 
   defp do_run(:icmp, ip, opts) do

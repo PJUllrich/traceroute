@@ -62,6 +62,24 @@ traceroute to google.com (142.251.140.174), 64 hops max, 40 byte packets
 - You may need to run as `sudo` depending on your OS, though try without it first. IPv6 ICMP probes on macOS definitely require sudo. If you get `:eperm` errors, use `sudo`.
 - Running many parallel probes can cause performance issues since each ICMP socket receives (but filters) all ICMP replies. Contact me if this affects you. I have a potential fix which is not yet implemented.
 
+## Testing `IPv6` using WireGuard
+
+Not every routers have IPv6-support, so if you run a traceroute with `ip_protocol: :ipv6` and receive the `{:error, :ehostunreach}` error, try the following:
+
+1. Install `wireguard` (e.g. `brew install wireguard-tools`)
+1. Sign up for an `IPv6 Tunnel` (e.g. `route64.org`)
+1. Create a `Tunnelbroker` by going to: 
+    1. `IPv6 Tunnelbroker`
+    1. `Add Tunnelbroker` (under `List tunnelbrokers`)
+    1. Select a region close to you. Select `Wireguard`.
+    1. Add your home IP (as shown on e.g. [ip.me](ip.me)) into `Remote Endpoint`
+    1. Click `Create Tunnelbroker`
+1. Navigate back to `List Tunnelbroker` and click on the `Example Config` action button next to your newly created tunnelbroker.
+1. Copy the config (starting with `[Interface]`) to a local `w0.conf` file.
+1. Enable WireGuard through `wg-quick up w0.conf`
+1. Now, you should be able to run traceroutes through IPv6!
+1. To disable WireGuard again, run `wg-quick down w0.conf`
+
 ## Useful `traceroute` commands to run comparisons
 
 ### IPv4
