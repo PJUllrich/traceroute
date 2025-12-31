@@ -44,7 +44,7 @@ defmodule Traceroute.Utils do
   @doc "Returns the domain for a given IP."
   def get_domain(ip) when is_tuple(ip) do
     with {:ok, {:hostent, domain, [], _inet_or_inet6, _version, _ip}} <- :inet_res.gethostbyaddr(ip) do
-      {:ok, domain}
+      {:ok, to_string(domain)}
     end
   end
 
@@ -114,8 +114,6 @@ defmodule Traceroute.Utils do
   def icmp_response_matches?(ip_protocol, reply_packet, expected_id_or_port) do
     {_header, payload} = split_reply_packet(ip_protocol, reply_packet)
     datagram = Protocols.ICMP.decode_datagram(payload, ip_protocol)
-
-    # IO.inspect({datagram, expected_id_or_port})
 
     case datagram do
       # Ignore unparsed packets

@@ -17,6 +17,7 @@ defmodule Traceroute do
     * `protocol: :icmp|:udp|:tcp` (default `:udp`). Which protocol to use for sending the pings.
     * `max_hops: 20`. After how many hops traceroute should abort.
     * `max_retries: 3`. How often to retry each hop before moving to the next hop.
+    * `min_ttl: 1`. Which Time-to-live value to start with.
     * `timeout: 1`. How long to wait for a response in seconds.
     * `print_output: true`. Whether to print the output to STDOUT or not.
     * `ip_protocol: :ipv4|:ipv6`. Whether to trace a domain over IPv4 or IPv6. Ignored if an IP-tuple is provided.
@@ -34,6 +35,7 @@ defmodule Traceroute do
       ip_protocol: :ipv4,
       max_hops: 20,
       max_retries: 3,
+      min_ttl: 1,
       timeout: 1,
       print_output: true,
       probes: 3
@@ -45,7 +47,7 @@ defmodule Traceroute do
          {:ok, ip_protocol} <- Utils.get_ip_protocol(ip) do
       opts = Map.put(opts, :ip_protocol, ip_protocol)
 
-      do_run(ip, 1, opts.max_hops, opts.max_retries, [], opts)
+      do_run(ip, opts.min_ttl, opts.max_hops, opts.max_retries, [], opts)
     end
   end
 
