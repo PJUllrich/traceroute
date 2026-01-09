@@ -70,12 +70,7 @@ defmodule Traceroute.Protocols.IPv6 do
     payload = remove_next_header_from_payload(next_header, payload)
 
     source_addr = Utils.ipv6_tuple(source_addr)
-
-    source_domain =
-      case Traceroute.Utils.get_domain(source_addr) do
-        {:ok, domain} -> domain
-        _error -> :inet.ntoa(source_addr)
-      end
+    source_domain = Traceroute.Utils.get_domain_or_address(source_addr)
 
     destination_addr = Utils.ipv6_tuple(destination_addr)
 
@@ -98,11 +93,7 @@ defmodule Traceroute.Protocols.IPv6 do
   # Resolves source address from socket recvfrom result
 
   defp resolve_source(%{addr: source_addr}) when is_tuple(source_addr) do
-    source_domain =
-      case Utils.get_domain(source_addr) do
-        {:ok, domain} -> domain
-        _error -> :inet.ntoa(source_addr)
-      end
+    source_domain = Utils.get_domain_or_address(source_addr)
 
     {source_addr, source_domain}
   end

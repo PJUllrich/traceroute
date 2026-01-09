@@ -63,7 +63,7 @@ defmodule Traceroute.Ping do
 
   # TCP reached destination (connection established or reset)
   defp parse_response({:ok, time, :reached}, ip, ttl, _ip_protocol) do
-    domain = resolve_domain(ip)
+    domain = Utils.get_domain_or_address(ip)
     header = %{source_addr: ip, source_domain: domain}
     probe = Probe.new(ttl, time, header, nil)
     {:ok, DestinationReached.new(ttl, probe)}
@@ -106,12 +106,5 @@ defmodule Traceroute.Ping do
   # Any other ICMP response - treat as a probe
   defp build_result(%ICMP{} = icmp, _ip, ttl, time, header) do
     Probe.new(ttl, time, header, icmp)
-  end
-
-  defp resolve_domain(ip) do
-    case Utils.get_domain(ip) do
-      {:ok, domain} -> domain
-      _error -> :inet.ntoa(ip)
-    end
   end
 end

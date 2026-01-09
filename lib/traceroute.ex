@@ -78,14 +78,14 @@ defmodule Traceroute do
     end
   end
 
-  # Small delay between probes to avoid router ICMP rate limiting (in ms)
+  # Small delay between probes to avoid router ICMP receive rate limiting (in ms)
   @probe_delay_ms 50
 
   defp run_parallel_probes(ip, ttl, opts) do
     1..opts.probes//1
     |> Task.async_stream(
       fn probe_num ->
-        # Stagger probe sends to avoid ICMP rate limiting on routers
+        # Stagger probe sends to avoid ICMP response rate limiting on routers
         if probe_num > 1, do: Process.sleep((probe_num - 1) * @probe_delay_ms)
         Ping.run(ip, ttl: ttl, timeout: opts.timeout, protocol: opts.protocol, ip_protocol: opts.ip_protocol)
       end,
@@ -112,12 +112,14 @@ defmodule Traceroute do
 
     cond do
       # If any probe reached the destination, combine all probes into one DestinationReached
+      # Include any standalone probes as well (e.g., late ICMP Time Exceeded responses)
       destinations != [] ->
-        all_probes =
+        destination_probes =
           destinations
           |> Enum.reverse()
           |> Enum.flat_map(& &1.probes)
 
+        all_probes = destination_probes ++ Enum.reverse(probes)
         combined = DestinationReached.new(ttl, all_probes)
         {:ok, :destination_reached, combined}
 
@@ -163,13 +165,13 @@ defmodule Traceroute do
 
   defp print_timeout_retry(ttl, stars, opts) do
     if opts.print_output do
-      IO.write("\r#{ttl}  #{stars}")
+      IO.write("\r#{format_ttl(ttl)}#{stars}")
     end
   end
 
   defp print_timeout_final(ttl, stars, opts) do
     if opts.print_output do
-      IO.write("\r#{ttl}  #{stars}\n")
+      IO.write("\r#{format_ttl(ttl)}#{stars}\n")
     end
   end
 
@@ -178,12 +180,12 @@ defmodule Traceroute do
     grouped =
       hop.probes
       |> Enum.group_by(fn probe -> {probe.source_addr, probe.source_domain} end)
-      |> Enum.map_join("\n   ", fn {{addr, domain}, probes} ->
+      |> Enum.map_join("\n    ", fn {{addr, domain}, probes} ->
         times = probes |> Enum.map(&Probe.time_ms/1) |> Enum.map_join("  ", &"#{&1}ms")
-        "#{domain} (#{format_addr(addr)}) #{times}"
+        "#{domain} (#{format_addr(addr)})  #{times}"
       end)
 
-    IO.write("\r#{hop.ttl}  #{grouped}\n")
+    IO.write("\r#{format_ttl(hop.ttl)}#{grouped}\n")
   end
 
   defp do_print(%DestinationReached{} = dest) do
@@ -191,7 +193,7 @@ defmodule Traceroute do
     grouped =
       dest.probes
       |> Enum.group_by(fn probe -> {probe.source_addr, probe.source_domain} end)
-      |> Enum.map_join("\n   ", fn {{addr, domain}, probes} ->
+      |> Enum.map_join("\n    ", fn {{addr, domain}, probes} ->
         times =
           probes
           |> Enum.map(&Probe.time_ms/1)
@@ -199,16 +201,18 @@ defmodule Traceroute do
 
         case domain do
           nil -> "#{format_addr(addr)} #{times}"
-          domain -> "#{domain} (#{format_addr(addr)}) #{times}"
+          domain -> "#{domain} (#{format_addr(addr)})  #{times}"
         end
       end)
 
-    IO.write("\r#{dest.ttl}  #{grouped}\n")
+    IO.write("\r#{format_ttl(dest.ttl)}#{grouped}\n")
   end
 
   defp do_print(%Error{} = error) do
-    IO.write("\r#{error.ttl}  #{inspect(error.reason)}\n")
+    IO.write("\r#{format_ttl(error.ttl)}#{inspect(error.reason)}\n")
   end
+
+  defp format_ttl(ttl) when is_integer(ttl), do: ttl |> Integer.to_string() |> String.pad_trailing(4, " ")
 
   defp format_addr(addr) when is_tuple(addr), do: :inet.ntoa(addr)
   defp format_addr(addr), do: addr

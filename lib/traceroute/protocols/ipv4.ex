@@ -61,11 +61,7 @@ defmodule Traceroute.Protocols.IPv4 do
 
     source_addr = Utils.ipv4_tuple(source_addr)
 
-    source_domain =
-      case Traceroute.Utils.get_domain(source_addr) do
-        {:ok, domain} -> domain
-        _error -> :inet.ntoa(source_addr)
-      end
+    source_domain = Traceroute.Utils.get_domain_or_address(source_addr)
 
     destination_addr = Utils.ipv4_tuple(destination_addr)
 

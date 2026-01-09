@@ -27,8 +27,8 @@ defmodule Traceroute.Result.Probe do
   @type t :: %__MODULE__{
           ttl: pos_integer(),
           time: non_neg_integer(),
-          source_addr: :inet.ip4_address(),
-          source_domain: String.t() | charlist(),
+          source_addr: :inet.ip_address(),
+          source_domain: String.t(),
           reply: ICMP.t()
         }
 
@@ -36,12 +36,12 @@ defmodule Traceroute.Result.Probe do
   Creates a new Probe from the TTL, response time, IPv4 header, and ICMP data.
   """
   @spec new(pos_integer(), non_neg_integer(), map(), ICMP.t()) :: t()
-  def new(ttl, time, ipv4_header, icmp) do
+  def new(ttl, time, ip_header, icmp) do
     %__MODULE__{
       ttl: ttl,
       time: time,
-      source_addr: ipv4_header.source_addr,
-      source_domain: ipv4_header.source_domain,
+      source_addr: ip_header.source_addr,
+      source_domain: ip_header.source_domain,
       reply: icmp
     }
   end

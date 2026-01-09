@@ -22,8 +22,22 @@ defmodule Traceroute.Utils do
 
   @doc "Returns the IPv4 or IPv6 address as Tuple for a given IP Protocol and Domain."
   def get_ip(_ip_protocol, ip) when is_tuple(ip), do: {:ok, ip}
-  def get_ip(:ipv4, domain) when is_binary(domain), do: get_ipv4(domain)
-  def get_ip(:ipv6, domain) when is_binary(domain), do: get_ipv6(domain)
+
+  def get_ip(:ipv4, domain_or_ip) when is_binary(domain_or_ip) do
+    charlist_domain_or_ip = String.to_charlist(domain_or_ip)
+
+    with {:error, _} <- :inet.parse_ipv4_address(charlist_domain_or_ip) do
+      get_ipv4(domain_or_ip)
+    end
+  end
+
+  def get_ip(:ipv6, domain_or_ip) when is_binary(domain_or_ip) do
+    charlist_domain_or_ip = String.to_charlist(domain_or_ip)
+
+    with {:error, _} <- :inet.parse_ipv6_address(charlist_domain_or_ip) do
+      get_ipv6(domain_or_ip)
+    end
+  end
 
   @doc "Returns the IPv4 as Tuple for a given Domain."
   def get_ipv4(domain) when is_binary(domain) do
@@ -48,6 +62,14 @@ defmodule Traceroute.Utils do
     end
   end
 
+  @doc "Returns the domain or a string representation of an IP address"
+  def get_domain_or_address(ip) when is_tuple(ip) do
+    case get_domain(ip) do
+      {:ok, domain} -> domain
+      _error -> ip |> :inet.ntoa() |> to_string()
+    end
+  end
+
   @doc "Returns the socket domain, protocol, and ttl option for an IP protocol."
   def get_protocol_options(:ipv4, protocol) when protocol in [:icmp, :udp, :tcp] do
     %{domain: :inet, protocol: protocol, ttl_opt: {:ip, :ttl}}
@@ -56,12 +78,40 @@ defmodule Traceroute.Utils do
   def get_protocol_options(:ipv6, protocol) do
     protocol =
       case protocol do
-        :icmp -> :"IPV6-ICMP"
+        :icmp -> icmpv6_protocol()
         :udp -> :udp
         :tcp -> :tcp
       end
 
     %{domain: :inet6, protocol: protocol, ttl_opt: {:ipv6, :unicast_hops}}
+  end
+
+  @doc """
+  Returns the ICMPv6 protocol identifier for the current OS.
+
+  The protocol name varies by operating system:
+  - macOS: `:"IPV6-ICMP"`
+  - Linux: `:ipv6_icmp`
+
+  Falls back to the raw protocol number 58 if neither is available.
+  """
+  def icmpv6_protocol do
+    cond do
+      protocol_exists?(:"IPV6-ICMP") -> :"IPV6-ICMP"
+      protocol_exists?(:ipv6_icmp) -> :ipv6_icmp
+      true -> 58
+    end
+  end
+
+  defp protocol_exists?(protocol) do
+    case :socket.open(:inet6, :dgram, protocol) do
+      {:ok, socket} ->
+        :socket.close(socket)
+        true
+
+      {:error, _} ->
+        false
+    end
   end
 
   @doc "Returns the any address for a given socket domain."
@@ -97,21 +147,17 @@ defmodule Traceroute.Utils do
   end
 
   @doc """
-  Checks if an ICMP response packet matches the expected identifier.
+  Returns an ICMP packet's `protocol + identifier` combination.
 
-  This is used to filter ICMP responses when multiple sockets run in parallel,
+  This is used to send ICMP responses to the correct process when multiple sockets run in parallel,
   ensuring each socket only processes responses intended for its own request.
 
   ## Parameters
 
   * `ip_protocol` - Whether the packet was sent through `:ipv4` or `:ipv6`
   * `reply_packet` - The raw ICMP response packet
-  * `expected_id_or_port` - The identifier to match against:
-  - For ICMP: the ICMP identifier (16-bit integer)
-  - For UDP/TCP: the source port (16-bit integer)
-
   """
-  def icmp_response_matches?(ip_protocol, reply_packet, expected_id_or_port) do
+  def get_icmp_identifier(ip_protocol, reply_packet) do
     {_header, payload} = split_reply_packet(ip_protocol, reply_packet)
     datagram = Protocols.ICMP.decode_datagram(payload, ip_protocol)
 
@@ -119,41 +165,42 @@ defmodule Traceroute.Utils do
       # Ignore unparsed packets
       %Protocols.ICMP{reply: %Unparsed{}} ->
         Logger.warning("Ignoring unparsed packet: #{inspect(datagram)}")
-        false
+        :error
 
       # Echo Reply - check identifier directly
       %{type: 0, reply: %{identifier: id}} ->
-        id == expected_id_or_port
+        {:ok, {:icmp, id}}
 
       # Time Exceeded with ICMP protocol - check embedded request datagram
       %{type: 11, reply: %{protocol: protocol, request_datagram: %{id: id}}}
       when protocol in [:icmp, :icmpv6] ->
-        id == expected_id_or_port
+        {:ok, {:icmp, id}}
 
       # Destination Unreachable with ICMP protocol - check embedded request datagram
       %{type: 3, reply: %{protocol: protocol, data: %{id: id}}}
       when protocol in [:icmp, :icmpv6] ->
-        id == expected_id_or_port
+        {:ok, {:icmp, id}}
 
       # Time Exceeded with UDP protocol - check embedded UDP source port
       %{type: 11, reply: %{protocol: :udp, request_datagram: %{source_port: port}}} ->
-        port == expected_id_or_port
+        {:ok, {:udp, port}}
 
       # Destination Unreachable with UDP protocol - check embedded UDP source port
       %{type: 3, reply: %{protocol: :udp, data: %{source_port: port}}} ->
-        port == expected_id_or_port
+        {:ok, {:udp, port}}
 
       # Time Exceeded with TCP protocol - check embedded TCP source port
       %{type: 11, reply: %{protocol: :tcp, request_datagram: %{source_port: port}}} ->
-        port == expected_id_or_port
+        {:ok, {:tcp, port}}
 
       # Destination Unreachable with TCP protocol - check embedded TCP source port
       %{type: 3, reply: %{protocol: :tcp, data: %{source_port: port}}} ->
-        port == expected_id_or_port
+        {:ok, {:tcp, port}}
 
       # Unknown or unparseable - reject to be safe
       _ ->
-        false
+        Logger.warning("Could not extract protocol and identifier from datagram #{inspect(datagram)}")
+        :error
     end
   end
 end
