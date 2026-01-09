@@ -91,26 +91,17 @@ defmodule Traceroute.Utils do
 
   The protocol name varies by operating system:
   - macOS: `:"IPV6-ICMP"`
-  - Linux: `:ipv6_icmp`
+  - Linux: `:"ipv6-icmp"`
 
   Falls back to the raw protocol number 58 if neither is available.
   """
   def icmpv6_protocol do
+    supported = :socket.supports(:protocols)
+
     cond do
-      protocol_exists?(:"IPV6-ICMP") -> :"IPV6-ICMP"
-      protocol_exists?(:ipv6_icmp) -> :ipv6_icmp
+      supported[:"IPV6-ICMP"] -> :"IPV6-ICMP"
+      supported[:"ipv6-icmp"] -> :"ipv6-icmp"
       true -> 58
-    end
-  end
-
-  defp protocol_exists?(protocol) do
-    case :socket.open(:inet6, :dgram, protocol) do
-      {:ok, socket} ->
-        :socket.close(socket)
-        true
-
-      {:error, _} ->
-        false
     end
   end
 
