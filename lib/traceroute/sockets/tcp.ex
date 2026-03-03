@@ -55,7 +55,7 @@ defmodule Traceroute.Sockets.TCP do
   def send(ip, ttl, timeout, ip_protocol, opts \\ []) do
     args = [ip: ip, ttl: ttl, timeout: timeout, ip_protocol: ip_protocol] ++ opts
     {:ok, pid} = start_link(args)
-    GenServer.call(pid, :send_probe, :infinity)
+    Utils.safe_genserver_call(pid, :send_probe, to_timeout(second: timeout + 1))
   end
 
   def start_link(args) do
@@ -86,9 +86,15 @@ defmodule Traceroute.Sockets.TCP do
   @impl GenServer
   def handle_call(:send_probe, from, state) do
     Logger.debug("Sending TCP probe to #{:inet.ntoa(state.ip)}")
-    %{domain: domain, protocol: protocol, ttl_opt: ttl_opt} = Utils.get_protocol_options(state.ip_protocol, :tcp)
 
-    with {:ok, tcp_socket} <- :socket.open(domain, :stream, protocol),
+    %{
+      domain: domain,
+      protocol: protocol,
+      ttl_opt: ttl_opt,
+      socket_type: socket_type
+    } = Utils.get_protocol_options(state.ip_protocol, :tcp)
+
+    with {:ok, tcp_socket} <- :socket.open(domain, socket_type, protocol),
          :ok <- :socket.setopt(tcp_socket, ttl_opt, state.ttl),
          # Bind to port 0 to let the OS assign an ephemeral port
          :ok <- :socket.bind(tcp_socket, %{family: domain, addr: Utils.any_addr(domain), port: 0}),

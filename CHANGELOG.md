@@ -1,3 +1,12 @@
+  ## [0.2.4] - 2026-03-03
+
+  - Fix a race condition in `ICMPConn.get_or_start_conn/1` where two processes could attempt to start the GenServer simultaneously. The second process would crash with a `MatchError` because `{:error, {:already_started, pid}}` was not handled.
+  - Handle `GenServer.call` timeouts in `ICMP.send/6`, `TCP.send/6`, and `UDP.send/6` gracefully. Previously, if the `:send_probe` call exceeded its timeout, the caller would crash with an `(EXIT) time out` error. Now it returns `{:error, :timeout}` instead.
+
+## [0.2.3] - 2026-01-11
+
+- Use `raw` ICMP sockets on Linux because Linux does not send all ICMP packets to all open ICMP datagram sockets like macOS does.
+
 ## [0.2.2] - 2026-01-09
 
 - Fix IPv6 protocol selection on Linux. It had `:"IPV6-ICMP"` hard-coded, but that's macOS only.

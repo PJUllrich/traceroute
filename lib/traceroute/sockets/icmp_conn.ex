@@ -38,8 +38,14 @@ defmodule Traceroute.Sockets.ICMPConn do
     |> case do
       nil ->
         Logger.debug("ICMPConn was not started. Starting it for #{ip_protocol}.")
-        {:ok, pid} = start_link(ip_protocol: ip_protocol)
-        pid
+
+        case start_link(ip_protocol: ip_protocol) do
+          {:ok, pid} ->
+            pid
+
+          {:error, {:already_started, pid}} ->
+            pid
+        end
 
       pid ->
         pid
@@ -75,11 +81,9 @@ defmodule Traceroute.Sockets.ICMPConn do
   def init(opts) do
     ip_protocol = Keyword.fetch!(opts, :ip_protocol)
 
-    {:ok, socket} =
-      case ip_protocol do
-        :ipv4 -> :socket.open(:inet, :dgram, :icmp)
-        :ipv6 -> :socket.open(:inet6, :dgram, Utils.icmpv6_protocol())
-      end
+    %{domain: domain, protocol: protocol, socket_type: socket_type} = Utils.get_protocol_options(ip_protocol, :icmp)
+
+    {:ok, socket} = :socket.open(domain, socket_type, protocol)
 
     send(self(), :receive)
 

@@ -45,7 +45,7 @@ defmodule Traceroute.Sockets.ICMP do
   def send(packet, ip, ttl, timeout, ip_protocol, opts \\ []) do
     args = [packet: packet, ip: ip, ttl: ttl, timeout: timeout, ip_protocol: ip_protocol] ++ opts
     {:ok, pid} = start_link(args)
-    GenServer.call(pid, :send_probe, to_timeout(second: timeout + 1))
+    Utils.safe_genserver_call(pid, :send_probe, to_timeout(second: timeout + 1))
   end
 
   def start_link(args) do

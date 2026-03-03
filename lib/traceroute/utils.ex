@@ -8,6 +8,15 @@ defmodule Traceroute.Utils do
 
   require Logger
 
+  @doc "Calls a GenServer with a timeout and handles the timeout error gracefully."
+  def safe_genserver_call(pid, args, timeout) do
+    GenServer.call(pid, args, to_timeout(second: timeout + 1))
+  catch
+    :exit, {:timeout, _} ->
+      GenServer.stop(pid, :normal, :infinity)
+      {:error, :timeout}
+  end
+
   @doc """
   Returns `{:ok, ip_protocol}` with `ip_protocol = :ipv4|:ipv6` for an IP tuple
   or `{:error, :invalid_ip_address}` if the IP tuple is invalid.
@@ -70,39 +79,43 @@ defmodule Traceroute.Utils do
     end
   end
 
+  @doc "Returns the host OS (linux or macOS)"
+  def get_host_os do
+    case :os.type() do
+      {:unix, :linux} -> :linux
+      {:unix, :darwin} -> :macos
+    end
+  end
+
+  @doc "Returns the correct socket type (raw, dgram, stream) for a given protocol depending on the current host OS"
+  def get_socket_type(protocol) do
+    host_os = get_host_os()
+
+    case {protocol, host_os} do
+      {:udp, _} -> :dgram
+      {:tcp, _} -> :stream
+      # ICMP
+      {_, :linux} -> :raw
+      {_, :macos} -> :dgram
+    end
+  end
+
   @doc "Returns the socket domain, protocol, and ttl option for an IP protocol."
   def get_protocol_options(:ipv4, protocol) when protocol in [:icmp, :udp, :tcp] do
-    %{domain: :inet, protocol: protocol, ttl_opt: {:ip, :ttl}}
+    %{domain: :inet, protocol: protocol, ttl_opt: {:ip, :ttl}, socket_type: get_socket_type(protocol)}
   end
 
   def get_protocol_options(:ipv6, protocol) do
     protocol =
       case protocol do
-        :icmp -> icmpv6_protocol()
+        # For compatability across linux and macOS, use the raw socket protocol number for IPv6 ICMP sockets (58)
+        # https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers
+        :icmp -> {:raw, 58}
         :udp -> :udp
         :tcp -> :tcp
       end
 
-    %{domain: :inet6, protocol: protocol, ttl_opt: {:ipv6, :unicast_hops}}
-  end
-
-  @doc """
-  Returns the ICMPv6 protocol identifier for the current OS.
-
-  The protocol name varies by operating system:
-  - macOS: `:"IPV6-ICMP"`
-  - Linux: `:"ipv6-icmp"`
-
-  Falls back to the raw protocol number 58 if neither is available.
-  """
-  def icmpv6_protocol do
-    supported = :socket.supports(:protocols)
-
-    cond do
-      supported[:"IPV6-ICMP"] -> :"IPV6-ICMP"
-      supported[:"ipv6-icmp"] -> :"ipv6-icmp"
-      true -> 58
-    end
+    %{domain: :inet6, protocol: protocol, ttl_opt: {:ipv6, :unicast_hops}, socket_type: get_socket_type(protocol)}
   end
 
   @doc "Returns the any address for a given socket domain."
