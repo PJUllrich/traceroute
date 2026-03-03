@@ -72,7 +72,7 @@ defmodule Traceroute.Sockets.ICMPConn do
   def unregister(ip_protocol, protocol, identifier) do
     ip_protocol
     |> build_name()
-    |> GenServer.call({:unregister, protocol, identifier})
+    |> GenServer.cast({:unregister, protocol, identifier})
   end
 
   # Callbacks
@@ -169,14 +169,15 @@ defmodule Traceroute.Sockets.ICMPConn do
     end
   end
 
-  def handle_call({:unregister, protocol, identifier}, _from, state) do
+  @impl GenServer
+  def handle_cast({:unregister, protocol, identifier}, state) do
     registry = Map.delete(state.registry, {protocol, identifier})
 
     if registry == %{} do
       schedule_terminate()
     end
 
-    {:reply, :ok, %{state | registry: registry}}
+    {:noreply, %{state | registry: registry}}
   end
 
   defp handle_packet(source, reply_packet, state) do

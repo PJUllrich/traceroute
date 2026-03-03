@@ -1,4 +1,8 @@
-  ## [0.2.4] - 2026-03-03
+## [0.2.5] - 2026-03-03
+
+- Use `GenServer.cast` instead of `GenServer.call` for `ICMPConn.unregister/3`. Previously, probe processes calling `unregister` during `terminate/2` could time out when `ICMPConn` was busy, causing `(EXIT) time out` errors. Since the caller is terminating and doesn't need a response, a cast is sufficient. The `ICMPConn` process monitor serves as a fallback cleanup mechanism.
+
+## [0.2.4] - 2026-03-03
 
   - Fix a race condition in `ICMPConn.get_or_start_conn/1` where two processes could attempt to start the GenServer simultaneously. The second process would crash with a `MatchError` because `{:error, {:already_started, pid}}` was not handled.
   - Handle `GenServer.call` timeouts in `ICMP.send/6`, `TCP.send/6`, and `UDP.send/6` gracefully. Previously, if the `:send_probe` call exceeded its timeout, the caller would crash with an `(EXIT) time out` error. Now it returns `{:error, :timeout}` instead.
