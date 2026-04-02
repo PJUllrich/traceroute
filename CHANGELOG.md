@@ -1,3 +1,7 @@
+## [0.2.6] - 2026-04-02
+
+- Fix a race condition where `ICMPConn.register/4` and `ICMPConn.send_packet/4` could crash with `(EXIT) normal` if the `ICMPConn` process terminated between the `get_or_start_conn` lookup and the subsequent `GenServer.call`. Both functions now retry once by restarting the connection.
+
 ## [0.2.5] - 2026-03-03
 
 - Use `GenServer.cast` instead of `GenServer.call` for `ICMPConn.unregister/3`. Previously, probe processes calling `unregister` during `terminate/2` could time out when `ICMPConn` was busy, causing `(EXIT) time out` errors. Since the caller is terminating and doesn't need a response, a cast is sufficient. The `ICMPConn` process monitor serves as a fallback cleanup mechanism.

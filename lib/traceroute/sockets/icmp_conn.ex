@@ -18,7 +18,7 @@ defmodule Traceroute.Sockets.ICMPConn do
 
   # Delays the shutdown of the GenServer after the last subscriber process is unregistered
   # to prevent raceconditions of the last subscriber leaving and a new process trying to register.
-  @shutdown_delay to_timeout(second: 5)
+  @shutdown_delay to_timeout(second: 15)
 
   defstruct [
     :socket,
@@ -58,15 +58,11 @@ defmodule Traceroute.Sockets.ICMPConn do
   end
 
   def send_packet(ip_protocol, ttl, packet, destination) do
-    ip_protocol
-    |> build_name()
-    |> GenServer.call({:send, ttl, packet, destination})
+    call_with_retry(ip_protocol, {:send, ttl, packet, destination})
   end
 
   def register(ip_protocol, protocol, identifier, pid) do
-    ip_protocol
-    |> build_name()
-    |> GenServer.call({:register, protocol, identifier, pid})
+    call_with_retry(ip_protocol, {:register, protocol, identifier, pid})
   end
 
   def unregister(ip_protocol, protocol, identifier) do
@@ -127,7 +123,7 @@ defmodule Traceroute.Sockets.ICMPConn do
   def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
     registry =
       state.registry
-      |> Enum.filter(fn {_key, pid_value} -> pid_value != pid end)
+      |> Enum.reject(fn {_key, pid_value} -> pid_value == pid end)
       |> Map.new()
 
     if registry == %{} do
@@ -203,6 +199,21 @@ defmodule Traceroute.Sockets.ICMPConn do
 
   defp schedule_terminate do
     Process.send_after(self(), :maybe_terminate, @shutdown_delay)
+  end
+
+  # Calls ICMPConn, retrying once if it terminated between lookup and call.
+  defp call_with_retry(ip_protocol, message) do
+    do_call_gen_server(ip_protocol, message)
+  catch
+    :exit, {reason, _} when reason in [:normal, :noproc] ->
+      _conn_pid = get_or_start_conn(ip_protocol)
+      do_call_gen_server(ip_protocol, message)
+  end
+
+  defp do_call_gen_server(ip_protocol, message) do
+    ip_protocol
+    |> build_name()
+    |> GenServer.call(message)
   end
 
   defp build_name(:ipv4), do: ICMPConn.IPv4
