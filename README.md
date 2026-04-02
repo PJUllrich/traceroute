@@ -63,13 +63,13 @@ traceroute to google.com (142.251.140.174), 64 hops max, 40 byte packets
 
 ## Testing `IPv6` using WireGuard
 
-Not every routers have IPv6-support, so if you run a traceroute with `ip_protocol: :ipv6` and receive the `{:error, :ehostunreach}` error, try the following:
+Not all routers have IPv6-support, so if you run a traceroute with `ip_protocol: :ipv6` and receive the `{:error, :ehostunreach}` error, try the following:
 
 1. Install `wireguard` (e.g. `brew install wireguard-tools`)
 1. Sign up for an `IPv6 Tunnel` (e.g. `route64.org`)
 1. Create a `Tunnelbroker` by going to: 
     1. `IPv6 Tunnelbroker`
-    1. `Add Tunnelbroker` (under `List tunnelbrokers`)
+    1. `List tunnelbrokers` -> `Add Tunnelbroker`
     1. Select a region close to you. Select `Wireguard`.
     1. Add your home IP (as shown on e.g. [ip.me](ip.me)) into `Remote Endpoint`
     1. Click `Create Tunnelbroker`
@@ -85,9 +85,9 @@ Not every routers have IPv6-support, so if you run a traceroute with `ip_protoco
 
 ```bash
 # Use 1s timeout and the ICMP protocol
-traceroute -w 1 -P ICMP fly.io
+traceroute -w 1 -P ICMP google.com
 # Use 1s timeout and the UDP protocol
-traceroute -w 1 -P UDP fly.io
+traceroute -w 1 -P UDP google.com
 # Use 1s timeout and the TCP protocol
 # First try without `sudo` but you most likely need elevated permissions
 sudo traceroute -w 1 -P tcp google.com
