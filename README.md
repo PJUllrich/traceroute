@@ -60,7 +60,6 @@ traceroute to google.com (142.251.140.174), 64 hops max, 40 byte packets
 
 - This library is untested on Windows. Please report any issues for investigation.
 - You may need to run as `sudo` depending on your OS. MacOS can run `ICMP`, `UDP`, and `TCP` without root for IPv4, but IPv6 requires root permissions for `ICMP` packets. Linux always requires root permissions because we need to run one `raw` socket for sending and receiving the `ICMP` packets. Generally, if you get `:eperm` errors, use `sudo`.
-- Running many parallel probes can cause performance issues since each ICMP socket receives (but filters) all ICMP replies. Contact me if this affects you. I have a potential fix which is not yet implemented.
 
 ## Testing `IPv6` using WireGuard
 
